@@ -34,6 +34,9 @@ def get_driver():
 
 
 def get_cached_chromedriver():
+    if os.name != "nt":
+        return None
+
     cache_root = Path.home() / ".wdm" / "drivers" / "chromedriver"
     drivers = sorted(
         cache_root.glob("**/chromedriver.exe"),
@@ -44,7 +47,7 @@ def get_cached_chromedriver():
 
 
 def check_availability():
-    print("Checking availability...")
+    print("Checking availability...", flush=True)
     driver = get_driver()
     try:
         driver.get(PRODUCT_URL)
@@ -52,21 +55,21 @@ def check_availability():
         source = driver.page_source.lower()
 
         if "currently unavailable" in source:
-            print("Still unavailable")
+            print("Still unavailable", flush=True)
         elif "add to cart" in source or "add-to-cart-button" in source:
-            print("IN STOCK! Sending alert...")
+            print("IN STOCK! Sending alert...", flush=True)
             send_alert()
         else:
-            print("Status unclear, will retry")
+            print("Status unclear, will retry", flush=True)
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", flush=True)
     finally:
         driver.quit()
 
 
 def is_available():
-    print("Checking availability...")
+    print("Checking availability...", flush=True)
     driver = get_driver()
     try:
         driver.get(PRODUCT_URL)
@@ -74,16 +77,16 @@ def is_available():
         source = driver.page_source.lower()
 
         if "currently unavailable" in source:
-            print("Still unavailable")
+            print("Still unavailable", flush=True)
             return False
         if "add to cart" in source or "add-to-cart-button" in source:
-            print("IN STOCK!")
+            print("IN STOCK!", flush=True)
             return True
 
-        print("Status unclear, will retry")
+        print("Status unclear, will retry", flush=True)
         return None
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", flush=True)
         return None
     finally:
         driver.quit()
@@ -110,7 +113,7 @@ def main():
         nonlocal notified_in_stock
         available = is_available()
         if available is True and not notified_in_stock:
-            print("Sending Telegram alert...")
+            print("Sending Telegram alert...", flush=True)
             send_alert()
             notified_in_stock = True
         elif available is False:
@@ -118,7 +121,7 @@ def main():
 
     schedule.every(15).minutes.do(scheduled_check)
 
-    print("Tracker started - checking every 15 mins")
+    print("Tracker started - checking every 15 mins", flush=True)
     scheduled_check()
 
     while True:

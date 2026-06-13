@@ -20,6 +20,6 @@ def send_alert():
         timeout=20,
     )
     if response.status_code == 200:
-        print("Telegram alert sent!")
+        print("Telegram alert sent!", flush=True)
     else:
-        print(f"Alert failed: {response.text}")
+        print(f"Alert failed: {response.text}", flush=True)
