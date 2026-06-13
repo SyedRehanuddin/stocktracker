@@ -30,7 +30,6 @@ The bot sends inline buttons with every message:
 - Pause / Resume
 - 5m / 10m / 15m / 30m interval
 - Notify every check / changes only
-- Daily summary on / off
 
 Commands also work:
 

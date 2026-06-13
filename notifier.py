@@ -4,11 +4,10 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PRODUCT_URL
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-def build_buttons(paused=False, notify_only_on_change=False, daily_summary=True):
+def build_buttons(paused=False, notify_only_on_change=False):
     pause_text = "Resume" if paused else "Pause"
     pause_action = "resume" if paused else "pause"
     notify_text = "Notify: changes only" if notify_only_on_change else "Notify: every check"
-    daily_text = "Daily summary: on" if daily_summary else "Daily summary: off"
 
     return {
         "inline_keyboard": [
@@ -25,7 +24,6 @@ def build_buttons(paused=False, notify_only_on_change=False, daily_summary=True)
                 {"text": "30m", "callback_data": "interval:30"},
             ],
             [{"text": notify_text, "callback_data": "toggle_notify"}],
-            [{"text": daily_text, "callback_data": "toggle_daily"}],
         ]
     }
 
@@ -41,7 +39,6 @@ def send_telegram_message(
     message,
     paused=False,
     notify_only_on_change=False,
-    daily_summary=True,
 ):
     response = telegram_request(
         "sendMessage",
@@ -53,7 +50,6 @@ def send_telegram_message(
             "reply_markup": build_buttons(
                 paused=paused,
                 notify_only_on_change=notify_only_on_change,
-                daily_summary=daily_summary,
             ),
         },
     )

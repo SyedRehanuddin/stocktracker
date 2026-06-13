@@ -23,11 +23,9 @@ IST = timezone(timedelta(hours=5, minutes=30))
 state = {
     "paused": False,
     "notify_only_on_change": False,
-    "daily_summary": True,
     "notified_in_stock": False,
     "last_status": None,
     "last_checked": None,
-    "last_summary_date": None,
     "interval": int(os.getenv("CHECK_INTERVAL_MINUTES", "15")),
     "telegram_offset": None,
 }
@@ -37,7 +35,6 @@ def controls():
     return {
         "paused": state["paused"],
         "notify_only_on_change": state["notify_only_on_change"],
-        "daily_summary": state["daily_summary"],
     }
 
 
@@ -55,7 +52,6 @@ def control_status_message():
     checked = state["last_checked"] or "never"
     mode = "changes only" if state["notify_only_on_change"] else "every check"
     paused = "yes" if state["paused"] else "no"
-    daily = "on" if state["daily_summary"] else "off"
 
     return (
         "*Tracker status*\n\n"
@@ -63,8 +59,7 @@ def control_status_message():
         f"Last check: `{checked}`\n"
         f"Paused: `{paused}`\n"
         f"Interval: `{state['interval']} minutes`\n"
-        f"Notifications: `{mode}`\n"
-        f"Daily summary: `{daily}`"
+        f"Notifications: `{mode}`"
     )
 
 
@@ -78,18 +73,6 @@ def should_send_status(available, previous_status):
     return True
 
 
-def should_send_daily_summary(available, already_sending):
-    if available is not False or already_sending or not state["daily_summary"]:
-        return False
-
-    today = datetime.utcnow().date().isoformat()
-    if state["last_summary_date"] == today:
-        return False
-
-    state["last_summary_date"] = today
-    return True
-
-
 def run_stock_check(force_notify=False):
     with check_lock:
         previous_status = state["last_status"]
@@ -100,9 +83,7 @@ def run_stock_check(force_notify=False):
         )
 
         send_now = force_notify or should_send_status(available, previous_status)
-        send_daily = should_send_daily_summary(available, send_now)
-
-        if send_now or send_daily:
+        if send_now:
             send_status_alert(available, **controls())
 
         if available is True:
@@ -206,11 +187,6 @@ def handle_callback(query):
         mode = "changes only" if state["notify_only_on_change"] else "every check"
         answer_callback_query(callback_id, f"Notifications: {mode}")
         send_control_message(f"*Notifications set to:* `{mode}`", **controls())
-    elif data == "toggle_daily":
-        state["daily_summary"] = not state["daily_summary"]
-        mode = "on" if state["daily_summary"] else "off"
-        answer_callback_query(callback_id, f"Daily summary: {mode}")
-        send_control_message(f"*Daily summary:* `{mode}`", **controls())
 
 
 def run_telegram_controls():
