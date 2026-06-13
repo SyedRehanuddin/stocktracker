@@ -17,6 +17,29 @@ python -m venv venv
 TELEGRAM_BOT_TOKEN=your_token
 TELEGRAM_CHAT_ID=your_chat_id
 PRODUCT_URL=https://www.amazon.in/dp/B0G2GMN6Y6
+CHECK_INTERVAL_MINUTES=15
+```
+
+## Telegram Controls
+
+The bot sends inline buttons with every message:
+
+- Buy on Amazon
+- Refresh Now
+- Status
+- Pause / Resume
+- 5m / 10m / 15m / 30m interval
+- Notify every check / changes only
+- Daily summary on / off
+
+Commands also work:
+
+```text
+/status
+/refresh
+/pause
+/resume
+/help
 ```
 
 ## Deploy
