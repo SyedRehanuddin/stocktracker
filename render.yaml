@@ -1,0 +1,11 @@
+services:
+  - type: worker
+    name: amazon-stock-tracker
+    runtime: docker
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: PRODUCT_URL
+        value: https://www.amazon.in/dp/B0G2GMN6Y6
