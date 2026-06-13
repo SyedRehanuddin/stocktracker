@@ -13,7 +13,7 @@ def build_buttons(paused=False, notify_only_on_change=False):
         "inline_keyboard": [
             [{"text": "Buy on Amazon", "url": PRODUCT_URL}],
             [
-                {"text": "Refresh Now", "callback_data": "refresh"},
+                {"text": "Check Now", "callback_data": "check"},
                 {"text": "Status", "callback_data": "status"},
             ],
             [{"text": pause_text, "callback_data": pause_action}],
@@ -121,7 +121,6 @@ def set_bot_commands():
                 {"command": "start", "description": "Show tracker dashboard"},
                 {"command": "status", "description": "Show current stock status"},
                 {"command": "check", "description": "Check Amazon now"},
-                {"command": "refresh", "description": "Refresh stock check"},
                 {"command": "pause", "description": "Pause scheduled checks"},
                 {"command": "resume", "description": "Resume scheduled checks"},
                 {"command": "help", "description": "Show commands and buttons"},

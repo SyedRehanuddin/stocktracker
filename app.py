@@ -134,8 +134,8 @@ def handle_command(text):
         send_control_message(control_status_message(), **controls())
     elif command == "/status":
         send_control_message(control_status_message(), **controls())
-    elif command in {"/check", "/refresh"}:
-        send_control_message("*Refresh started.*", **controls())
+    elif command == "/check":
+        send_control_message("*Check started.*", **controls())
         run_stock_check(force_notify=True)
     elif command == "/pause":
         state["paused"] = True
@@ -149,7 +149,6 @@ def handle_command(text):
             "/start - show tracker dashboard\n"
             "/status - show current tracker settings\n"
             "/check - check Amazon now\n"
-            "/refresh - check Amazon now\n"
             "/pause - pause scheduled checks\n"
             "/resume - resume scheduled checks",
             **controls(),
@@ -160,7 +159,7 @@ def handle_callback(query):
     data = query.get("data", "")
     callback_id = query.get("id")
 
-    if data == "refresh":
+    if data == "check":
         answer_callback_query(callback_id, "Checking now...")
         run_stock_check(force_notify=True)
     elif data == "status":

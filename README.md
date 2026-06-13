@@ -25,7 +25,7 @@ CHECK_INTERVAL_MINUTES=15
 The bot sends inline buttons with every message:
 
 - Buy on Amazon
-- Refresh Now
+- Check Now
 - Status
 - Pause / Resume
 - 5m / 10m / 15m / 30m interval
@@ -36,7 +36,6 @@ Commands also work:
 ```text
 /status
 /check
-/refresh
 /pause
 /resume
 /help
