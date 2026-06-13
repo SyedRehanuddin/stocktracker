@@ -1,7 +1,8 @@
 services:
-  - type: worker
+  - type: web
     name: amazon-stock-tracker
     runtime: docker
+    plan: free
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
@@ -9,3 +10,5 @@ services:
         sync: false
       - key: PRODUCT_URL
         value: https://www.amazon.in/dp/B0G2GMN6Y6
+      - key: CHECK_INTERVAL_MINUTES
+        value: 15

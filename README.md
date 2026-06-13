@@ -21,8 +21,12 @@ PRODUCT_URL=https://www.amazon.in/dp/B0G2GMN6Y6
 
 ## Deploy
 
-This project includes a Dockerfile for cloud hosts like Render or Railway. Configure the environment variables above in the hosting dashboard, then run:
+This project includes a Dockerfile for Render. Deploy it as a Free Web Service, not a Background Worker. Render does not provide Free Background Workers.
+
+Configure the environment variables above in the hosting dashboard. The Dockerfile starts:
 
 ```bash
-python tracker.py
+python app.py
 ```
+
+Render Free Web Services sleep after idle time, so add a free uptime monitor that pings the service URL every 5 minutes.
