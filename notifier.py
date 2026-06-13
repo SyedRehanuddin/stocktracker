@@ -1,12 +1,13 @@
 import requests
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PRODUCT_URL, TRACKER_URL
+from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PRODUCT_URL
 
 
 def build_buttons():
-    buttons = [[{"text": "Buy on Amazon", "url": PRODUCT_URL}]]
-    if TRACKER_URL:
-        buttons.append([{"text": "Open Tracker", "url": TRACKER_URL}])
-    return {"inline_keyboard": buttons}
+    return {
+        "inline_keyboard": [
+            [{"text": "Buy on Amazon", "url": PRODUCT_URL}],
+        ]
+    }
 
 
 def send_telegram_message(message):
