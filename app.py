@@ -1,7 +1,7 @@
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import schedule
 from flask import Flask
@@ -18,6 +18,7 @@ from tracker import is_available
 
 app = Flask(__name__)
 check_lock = threading.Lock()
+IST = timezone(timedelta(hours=5, minutes=30))
 
 state = {
     "paused": False,
@@ -94,7 +95,9 @@ def run_stock_check(force_notify=False):
         previous_status = state["last_status"]
         available = is_available()
         state["last_status"] = available
-        state["last_checked"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+        state["last_checked"] = datetime.now(IST).strftime(
+            "%d %b %Y, %I:%M %p IST"
+        )
 
         send_now = force_notify or should_send_status(available, previous_status)
         send_daily = should_send_daily_summary(available, send_now)
