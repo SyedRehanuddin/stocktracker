@@ -12,6 +12,7 @@ from notifier import (
     get_updates,
     send_control_message,
     send_status_alert,
+    set_bot_commands,
 )
 from tracker import is_available
 
@@ -145,9 +146,11 @@ def is_authorized_chat(update):
 
 def handle_command(text):
     command = text.split()[0].lower()
-    if command == "/status":
+    if command == "/start":
         send_control_message(control_status_message(), **controls())
-    elif command == "/refresh":
+    elif command == "/status":
+        send_control_message(control_status_message(), **controls())
+    elif command in {"/check", "/refresh"}:
         send_control_message("*Refresh started.*", **controls())
         run_stock_check(force_notify=True)
     elif command == "/pause":
@@ -159,7 +162,9 @@ def handle_command(text):
     elif command == "/help":
         send_control_message(
             "*Commands*\n\n"
+            "/start - show tracker dashboard\n"
             "/status - show current tracker settings\n"
+            "/check - check Amazon now\n"
             "/refresh - check Amazon now\n"
             "/pause - pause scheduled checks\n"
             "/resume - resume scheduled checks",
@@ -239,6 +244,7 @@ def health():
 
 if __name__ == "__main__":
     validate_config()
+    set_bot_commands()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=run_telegram_controls, daemon=True).start()
     port = int(os.getenv("PORT", "10000"))

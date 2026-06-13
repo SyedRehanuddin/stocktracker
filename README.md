@@ -36,6 +36,7 @@ Commands also work:
 
 ```text
 /status
+/check
 /refresh
 /pause
 /resume

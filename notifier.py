@@ -115,3 +115,20 @@ def get_updates(offset=None):
         return []
     data = response.json()
     return data.get("result", []) if data.get("ok") else []
+
+
+def set_bot_commands():
+    telegram_request(
+        "setMyCommands",
+        {
+            "commands": [
+                {"command": "start", "description": "Show tracker dashboard"},
+                {"command": "status", "description": "Show current stock status"},
+                {"command": "check", "description": "Check Amazon now"},
+                {"command": "refresh", "description": "Refresh stock check"},
+                {"command": "pause", "description": "Pause scheduled checks"},
+                {"command": "resume", "description": "Resume scheduled checks"},
+                {"command": "help", "description": "Show commands and buttons"},
+            ]
+        },
+    )
