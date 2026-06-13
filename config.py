@@ -6,6 +6,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 PRODUCT_URL = os.getenv("PRODUCT_URL")
+TRACKER_URL = os.getenv("TRACKER_URL")
 
 
 def validate_config():

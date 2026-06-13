@@ -1,7 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from notifier import send_alert
+from notifier import send_alert, send_status_alert
 from config import PRODUCT_URL, validate_config
 import schedule
 import time
@@ -117,7 +117,12 @@ def main():
             send_alert()
             notified_in_stock = True
         elif available is False:
+            print("Sending unavailable Telegram status...", flush=True)
+            send_status_alert(False)
             notified_in_stock = False
+        elif available is None:
+            print("Sending unclear Telegram status...", flush=True)
+            send_status_alert(None)
 
     schedule.every(15).minutes.do(scheduled_check)
 

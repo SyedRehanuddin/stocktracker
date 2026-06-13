@@ -6,7 +6,7 @@ import schedule
 from flask import Flask
 
 from config import PRODUCT_URL, validate_config
-from notifier import send_alert
+from notifier import send_status_alert
 from tracker import is_available
 
 app = Flask(__name__)
@@ -19,10 +19,15 @@ def scheduled_check():
     available = is_available()
     if available is True and not notified_in_stock:
         print("Sending Telegram alert...", flush=True)
-        send_alert()
+        send_status_alert(True)
         notified_in_stock = True
     elif available is False:
+        print("Sending unavailable Telegram status...", flush=True)
+        send_status_alert(False)
         notified_in_stock = False
+    elif available is None:
+        print("Sending unclear Telegram status...", flush=True)
+        send_status_alert(None)
 
 
 def run_scheduler():
