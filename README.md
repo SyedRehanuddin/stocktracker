@@ -17,7 +17,7 @@ python -m venv venv
 TELEGRAM_BOT_TOKEN=your_token
 TELEGRAM_CHAT_ID=your_chat_id
 PRODUCT_URL=https://www.amazon.in/dp/B0G2GMN6Y6
-ADDITIONAL_PRODUCT_URLS=https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186
+ADDITIONAL_PRODUCT_URLS=https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186,https://www.amazon.in/dp/B0B7CMZ3QH
 CHECK_INTERVAL_MINUTES=15
 REDIS_URL=your_render_key_value_redis_url
 ```

@@ -48,8 +48,6 @@ def get_cached_chromedriver():
 
 
 def detect_availability(driver):
-    source = driver.page_source.lower()
-
     add_to_cart_buttons = driver.find_elements(By.ID, "add-to-cart-button")
     buy_now_buttons = driver.find_elements(By.ID, "buy-now-button")
 
@@ -58,11 +56,14 @@ def detect_availability(driver):
     if any(button.is_displayed() and button.is_enabled() for button in buy_now_buttons):
         return True
 
-    if "add to cart" in source or "add-to-cart-button" in source:
-        return True
-    if "buy now" in source or "buy-now-button" in source:
-        return True
-    if "currently unavailable" in source:
+    visible_status_text = " ".join(
+        element.text.lower()
+        for selector in ("#availability", "#outOfStock", "#buybox")
+        for element in driver.find_elements(By.CSS_SELECTOR, selector)
+        if element.is_displayed()
+    )
+
+    if "currently unavailable" in visible_status_text:
         return False
 
     return None

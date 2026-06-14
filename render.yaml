@@ -11,7 +11,7 @@ services:
       - key: PRODUCT_URL
         value: https://www.amazon.in/dp/B0G2GMN6Y6
       - key: ADDITIONAL_PRODUCT_URLS
-        value: https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186
+        value: https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186,https://www.amazon.in/dp/B0B7CMZ3QH
       - key: CHECK_INTERVAL_MINUTES
         value: 15
       - key: REDIS_URL

@@ -199,6 +199,24 @@ def check_summary_message():
     return "*Check finished*\n\n" + "\n".join(product_summary_lines())
 
 
+def run_manual_check_async():
+    if check_lock.locked():
+        send_control_message("*A check is already running.*", **controls())
+        return
+
+    send_control_message("*Check started for all products.*", **controls())
+
+    def worker():
+        try:
+            run_stock_check(force_notify=True)
+            send_control_message(check_summary_message(), **controls())
+        except Exception as e:
+            print(f"Manual check failed: {e}", flush=True)
+            send_control_message(f"*Check failed:* `{e}`", **controls())
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def should_send_status(product, available, previous_status):
     if available is True:
         return not product["notified_in_stock"] or not state["notify_only_on_change"]
@@ -317,9 +335,7 @@ def handle_command(text):
             ok, message = remove_product(parts[1])
             send_control_message(f"*{message}*", **controls())
     elif command == "/check":
-        send_control_message("*Check started for all products.*", **controls())
-        run_stock_check(force_notify=True)
-        send_control_message(check_summary_message(), **controls())
+        run_manual_check_async()
     elif command == "/pause":
         state["paused"] = True
         send_control_message("*Tracker paused.*", **controls())
@@ -346,9 +362,8 @@ def handle_callback(query):
     callback_id = query.get("id")
 
     if data == "check":
-        answer_callback_query(callback_id, "Checking all products...")
-        run_stock_check(force_notify=True)
-        send_control_message(check_summary_message(), **controls())
+        answer_callback_query(callback_id, "Check started")
+        run_manual_check_async()
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
         send_control_message(control_status_message(), **controls())
