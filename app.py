@@ -16,7 +16,7 @@ from notifier import (
     set_bot_commands,
 )
 from storage import load_products, save_products
-from tracker import is_available
+from tracker import check_urls
 
 app = Flask(__name__)
 check_lock = threading.Lock()
@@ -239,9 +239,8 @@ def should_send_status(product, available, previous_status):
     return True
 
 
-def run_product_check(product, force_notify=False):
+def apply_product_result(product, available, force_notify=False):
     previous_status = product["last_status"]
-    available = is_available(product["url"])
     product["last_status"] = available
     product["last_checked"] = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
 
@@ -267,9 +266,10 @@ def run_stock_check(force_notify=False, reload_first=False):
         if reload_first:
             reload_products_from_storage()
         print(f"Checking {len(state['products'])} products", flush=True)
-        results = []
-        for product in list(state["products"]):
-            results.append(run_product_check(product, force_notify=force_notify))
+        products = list(state["products"])
+        results = check_urls([product["url"] for product in products])
+        for product, available in zip(products, results):
+            apply_product_result(product, available, force_notify=force_notify)
         save_products(state["products"])
         return results
 

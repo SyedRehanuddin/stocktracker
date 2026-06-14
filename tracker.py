@@ -22,7 +22,12 @@ def get_driver():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1365,768")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-sync")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--blink-settings=imagesEnabled=false")
+    options.add_argument("--window-size=1024,768")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -113,6 +118,34 @@ def is_available(product_url=PRODUCT_URL):
         return None
     finally:
         driver.quit()
+
+
+def check_urls(product_urls):
+    driver = get_driver()
+    results = []
+    try:
+        for product_url in product_urls:
+            print(f"Checking availability: {product_url}", flush=True)
+            try:
+                driver.get(product_url)
+                time.sleep(random.uniform(2, 4))
+                available = detect_availability(driver)
+
+                if available is True:
+                    print("IN STOCK!", flush=True)
+                elif available is False:
+                    print("Still unavailable", flush=True)
+                else:
+                    print("Status unclear, will retry", flush=True)
+
+                results.append(available)
+            except Exception as e:
+                print(f"Error checking {product_url}: {e}", flush=True)
+                results.append(None)
+    finally:
+        driver.quit()
+
+    return results
 
 
 def main():
