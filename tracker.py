@@ -68,11 +68,11 @@ def detect_availability(driver):
     return None
 
 
-def check_availability():
+def check_availability(product_url=PRODUCT_URL):
     print("Checking availability...", flush=True)
     driver = get_driver()
     try:
-        driver.get(PRODUCT_URL)
+        driver.get(product_url)
         time.sleep(random.uniform(3, 5))
         available = detect_availability(driver)
 
@@ -90,11 +90,11 @@ def check_availability():
         driver.quit()
 
 
-def is_available():
+def is_available(product_url=PRODUCT_URL):
     print("Checking availability...", flush=True)
     driver = get_driver()
     try:
-        driver.get(PRODUCT_URL)
+        driver.get(product_url)
         time.sleep(random.uniform(3, 5))
         available = detect_availability(driver)
 

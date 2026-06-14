@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -19,22 +20,39 @@ from tracker import is_available
 app = Flask(__name__)
 check_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
+URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def clean_url(url):
+    return url.strip().strip("<>").rstrip(").,")
+
+
+def make_product(url, name=None):
+    return {
+        "url": clean_url(url),
+        "name": name or f"Product {len(state['products']) + 1}",
+        "last_status": None,
+        "last_checked": None,
+        "notified_in_stock": False,
+    }
+
 
 state = {
     "paused": False,
     "notify_only_on_change": False,
-    "notified_in_stock": False,
-    "last_status": None,
-    "last_checked": None,
     "interval": int(os.getenv("CHECK_INTERVAL_MINUTES", "15")),
     "telegram_offset": None,
+    "awaiting_product_url": False,
+    "products": [],
 }
+state["products"].append(make_product(PRODUCT_URL, "Product 1"))
 
 
-def controls():
+def controls(product_url=None):
     return {
         "paused": state["paused"],
         "notify_only_on_change": state["notify_only_on_change"],
+        "product_url": product_url,
     }
 
 
@@ -48,24 +66,73 @@ def status_label(available):
     return "not checked yet"
 
 
+def is_amazon_url(url):
+    url = clean_url(url).lower()
+    return url.startswith(("http://", "https://")) and "amazon." in url
+
+
+def product_exists(url):
+    cleaned = clean_url(url)
+    return any(product["url"] == cleaned for product in state["products"])
+
+
+def add_product(url):
+    if not is_amazon_url(url):
+        return False, "Please send a valid Amazon product link."
+    if product_exists(url):
+        return False, "That product is already being tracked."
+
+    state["products"].append(make_product(url))
+    return True, f"Added Product {len(state['products'])}."
+
+
+def remove_product(number_text):
+    try:
+        number = int(number_text)
+    except ValueError:
+        return False, "Use `/remove 2` with the product number from `/list`."
+
+    if number < 1 or number > len(state["products"]):
+        return False, "That product number is not in the list."
+
+    if len(state["products"]) == 1:
+        return False, "Keep at least one product in the tracker."
+
+    removed = state["products"].pop(number - 1)
+    return True, f"Removed {removed['name']}."
+
+
+def product_list_message():
+    lines = ["*Tracked products*"]
+    for index, product in enumerate(state["products"], start=1):
+        status = status_label(product["last_status"])
+        checked = product["last_checked"] or "never"
+        lines.append(
+            f"\n*{index}. {product['name']}*\n"
+            f"Status: `{status}`\n"
+            f"Last check: `{checked}`\n"
+            f"{product['url']}"
+        )
+    return "\n".join(lines)
+
+
 def control_status_message():
-    checked = state["last_checked"] or "never"
     mode = "changes only" if state["notify_only_on_change"] else "every check"
     paused = "yes" if state["paused"] else "no"
 
     return (
         "*Tracker status*\n\n"
-        f"Stock: `{status_label(state['last_status'])}`\n"
-        f"Last check: `{checked}`\n"
+        f"Products: `{len(state['products'])}`\n"
         f"Paused: `{paused}`\n"
         f"Interval: `{state['interval']} minutes`\n"
-        f"Notifications: `{mode}`"
+        f"Notifications: `{mode}`\n\n"
+        "Use `/list` to see each product."
     )
 
 
-def should_send_status(available, previous_status):
+def should_send_status(product, available, previous_status):
     if available is True:
-        return not state["notified_in_stock"] or not state["notify_only_on_change"]
+        return not product["notified_in_stock"] or not state["notify_only_on_change"]
 
     if state["notify_only_on_change"]:
         return previous_status != available
@@ -73,25 +140,35 @@ def should_send_status(available, previous_status):
     return True
 
 
-def run_stock_check(force_notify=False):
-    with check_lock:
-        previous_status = state["last_status"]
-        available = is_available()
-        state["last_status"] = available
-        state["last_checked"] = datetime.now(IST).strftime(
-            "%d %b %Y, %I:%M %p IST"
+def run_product_check(product, force_notify=False):
+    previous_status = product["last_status"]
+    available = is_available(product["url"])
+    product["last_status"] = available
+    product["last_checked"] = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
+
+    send_now = force_notify or should_send_status(product, available, previous_status)
+    if send_now:
+        send_status_alert(
+            available,
+            product_name=product["name"],
+            product_url=product["url"],
+            **controls(product["url"]),
         )
 
-        send_now = force_notify or should_send_status(available, previous_status)
-        if send_now:
-            send_status_alert(available, **controls())
+    if available is True:
+        product["notified_in_stock"] = True
+    elif available is False:
+        product["notified_in_stock"] = False
 
-        if available is True:
-            state["notified_in_stock"] = True
-        elif available is False:
-            state["notified_in_stock"] = False
+    return available
 
-        return available
+
+def run_stock_check(force_notify=False):
+    with check_lock:
+        results = []
+        for product in list(state["products"]):
+            results.append(run_product_check(product, force_notify=force_notify))
+        return results
 
 
 def scheduled_check():
@@ -128,14 +205,49 @@ def is_authorized_chat(update):
     return chat_id == str(TELEGRAM_CHAT_ID)
 
 
+def prompt_for_url():
+    state["awaiting_product_url"] = True
+    send_control_message(
+        "*Send me an Amazon product link.*\n\n"
+        "I will add it to the tracker and check it with the others.",
+        **controls(),
+    )
+
+
+def handle_product_url(text):
+    match = URL_RE.search(text)
+    if not match:
+        send_control_message("I could not find a URL. Send the Amazon product link.", **controls())
+        return
+
+    ok, message = add_product(match.group(0))
+    state["awaiting_product_url"] = False
+    send_control_message(f"*{message}*\n\nUse `/list` to see tracked products.", **controls())
+
+
 def handle_command(text):
-    command = text.split()[0].lower()
+    parts = text.split()
+    command = parts[0].lower()
+
     if command == "/start":
         send_control_message(control_status_message(), **controls())
     elif command == "/status":
         send_control_message(control_status_message(), **controls())
+    elif command == "/list":
+        send_control_message(product_list_message(), **controls())
+    elif command == "/add":
+        if len(parts) > 1:
+            handle_product_url(" ".join(parts[1:]))
+        else:
+            prompt_for_url()
+    elif command == "/remove":
+        if len(parts) < 2:
+            send_control_message("Use `/remove 2` with the number from `/list`.", **controls())
+        else:
+            ok, message = remove_product(parts[1])
+            send_control_message(f"*{message}*", **controls())
     elif command == "/check":
-        send_control_message("*Check started.*", **controls())
+        send_control_message("*Check started for all products.*", **controls())
         run_stock_check(force_notify=True)
     elif command == "/pause":
         state["paused"] = True
@@ -147,8 +259,11 @@ def handle_command(text):
         send_control_message(
             "*Commands*\n\n"
             "/start - show tracker dashboard\n"
-            "/status - show current tracker settings\n"
-            "/check - check Amazon now\n"
+            "/status - show tracker settings\n"
+            "/list - list tracked products\n"
+            "/add - add an Amazon product URL\n"
+            "/remove 2 - remove product number 2\n"
+            "/check - check all products now\n"
             "/pause - pause scheduled checks\n"
             "/resume - resume scheduled checks",
             **controls(),
@@ -160,11 +275,17 @@ def handle_callback(query):
     callback_id = query.get("id")
 
     if data == "check":
-        answer_callback_query(callback_id, "Checking now...")
+        answer_callback_query(callback_id, "Checking all products...")
         run_stock_check(force_notify=True)
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
         send_control_message(control_status_message(), **controls())
+    elif data == "add":
+        answer_callback_query(callback_id, "Send a product link")
+        prompt_for_url()
+    elif data == "list":
+        answer_callback_query(callback_id, "Sending product list")
+        send_control_message(product_list_message(), **controls())
     elif data == "pause":
         state["paused"] = True
         answer_callback_query(callback_id, "Paused")
@@ -203,6 +324,8 @@ def run_telegram_controls():
                     text = update["message"].get("text", "")
                     if text.startswith("/"):
                         handle_command(text)
+                    elif state["awaiting_product_url"] or URL_RE.search(text):
+                        handle_product_url(text)
         except Exception as e:
             print(f"Telegram control loop error: {e}", flush=True)
             time.sleep(10)
@@ -212,9 +335,16 @@ def run_telegram_controls():
 def health():
     return {
         "status": "running",
-        "product_url": PRODUCT_URL,
-        "last_stock_status": status_label(state["last_status"]),
-        "last_checked": state["last_checked"],
+        "product_count": len(state["products"]),
+        "products": [
+            {
+                "name": product["name"],
+                "url": product["url"],
+                "last_stock_status": status_label(product["last_status"]),
+                "last_checked": product["last_checked"],
+            }
+            for product in state["products"]
+        ],
         "paused": state["paused"],
         "interval_minutes": state["interval"],
     }

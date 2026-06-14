@@ -4,17 +4,26 @@ from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PRODUCT_URL
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-def build_buttons(paused=False, notify_only_on_change=False):
+def build_buttons(
+    paused=False,
+    notify_only_on_change=False,
+    product_url=None,
+):
     pause_text = "Resume" if paused else "Pause"
     pause_action = "resume" if paused else "pause"
     notify_text = "Notify: changes only" if notify_only_on_change else "Notify: every check"
+    buy_url = product_url or PRODUCT_URL
 
     return {
         "inline_keyboard": [
-            [{"text": "Buy on Amazon", "url": PRODUCT_URL}],
+            [{"text": "Buy on Amazon", "url": buy_url}],
             [
                 {"text": "Check Now", "callback_data": "check"},
                 {"text": "Status", "callback_data": "status"},
+            ],
+            [
+                {"text": "Add Product", "callback_data": "add"},
+                {"text": "List Products", "callback_data": "list"},
             ],
             [{"text": pause_text, "callback_data": pause_action}],
             [
@@ -39,6 +48,7 @@ def send_telegram_message(
     message,
     paused=False,
     notify_only_on_change=False,
+    product_url=None,
 ):
     response = telegram_request(
         "sendMessage",
@@ -50,6 +60,7 @@ def send_telegram_message(
             "reply_markup": build_buttons(
                 paused=paused,
                 notify_only_on_change=notify_only_on_change,
+                product_url=product_url,
             ),
         },
     )
@@ -61,27 +72,27 @@ def send_alert(**controls):
     send_status_alert(True, **controls)
 
 
-def send_status_alert(available, **controls):
+def send_status_alert(available, product_name="Product", product_url=None, **controls):
     if available is True:
         msg = (
-            "*KEYBOARD IS BACK!*\n\n"
-            "Evofox Katana S Mini Black is NOW available.\n\n"
+            f"*{product_name} is available!*\n\n"
+            "Amazon is showing Buy/Add to Cart options.\n\n"
             "Go fast before it's gone."
         )
     elif available is False:
         msg = (
-            "*Keyboard status: unavailable*\n\n"
-            "Evofox Katana S Mini Black is still out of stock.\n\n"
+            f"*{product_name}: unavailable*\n\n"
+            "Amazon is still showing this product as out of stock.\n\n"
             "I will keep checking."
         )
     else:
         msg = (
-            "*Keyboard status: unclear*\n\n"
+            f"*{product_name}: unclear*\n\n"
             "Amazon did not show a clear stock status this time.\n\n"
             "I will retry on the next check."
         )
 
-    send_telegram_message(msg, **controls)
+    send_telegram_message(msg, product_url=product_url, **controls)
 
 
 def send_control_message(message, **controls):
@@ -120,7 +131,10 @@ def set_bot_commands():
             "commands": [
                 {"command": "start", "description": "Show tracker dashboard"},
                 {"command": "status", "description": "Show current stock status"},
-                {"command": "check", "description": "Check Amazon now"},
+                {"command": "check", "description": "Check all products now"},
+                {"command": "add", "description": "Add an Amazon product URL"},
+                {"command": "list", "description": "List tracked products"},
+                {"command": "remove", "description": "Remove a product by number"},
                 {"command": "pause", "description": "Pause scheduled checks"},
                 {"command": "resume", "description": "Resume scheduled checks"},
                 {"command": "help", "description": "Show commands and buttons"},

@@ -27,6 +27,8 @@ The bot sends inline buttons with every message:
 - Buy on Amazon
 - Check Now
 - Status
+- Add Product
+- List Products
 - Pause / Resume
 - 5m / 10m / 15m / 30m interval
 - Notify every check / changes only
@@ -35,11 +37,16 @@ Commands also work:
 
 ```text
 /status
+/list
+/add
+/remove 2
 /check
 /pause
 /resume
 /help
 ```
+
+Links added from Telegram are kept in memory. On Render Free, they may reset after a redeploy or service restart.
 
 ## Deploy
 
