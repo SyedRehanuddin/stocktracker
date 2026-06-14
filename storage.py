@@ -15,6 +15,13 @@ def get_redis_client():
     redis_url = os.getenv("REDIS_URL")
     if not redis_url or redis is None:
         return None
+    if not redis_url.startswith(("redis://", "rediss://", "unix://")):
+        print(
+            "Ignoring REDIS_URL because it is not a Redis connection URL. "
+            "It must start with redis://, rediss://, or unix://.",
+            flush=True,
+        )
+        return None
     return redis.from_url(redis_url, decode_responses=True)
 
 
