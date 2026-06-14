@@ -1,6 +1,7 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
 from notifier import send_alert, send_status_alert
 from config import PRODUCT_URL, validate_config
 import schedule
@@ -46,19 +47,40 @@ def get_cached_chromedriver():
     return drivers[0] if drivers else None
 
 
+def detect_availability(driver):
+    source = driver.page_source.lower()
+
+    add_to_cart_buttons = driver.find_elements(By.ID, "add-to-cart-button")
+    buy_now_buttons = driver.find_elements(By.ID, "buy-now-button")
+
+    if any(button.is_displayed() and button.is_enabled() for button in add_to_cart_buttons):
+        return True
+    if any(button.is_displayed() and button.is_enabled() for button in buy_now_buttons):
+        return True
+
+    if "add to cart" in source or "add-to-cart-button" in source:
+        return True
+    if "buy now" in source or "buy-now-button" in source:
+        return True
+    if "currently unavailable" in source:
+        return False
+
+    return None
+
+
 def check_availability():
     print("Checking availability...", flush=True)
     driver = get_driver()
     try:
         driver.get(PRODUCT_URL)
         time.sleep(random.uniform(3, 5))
-        source = driver.page_source.lower()
+        available = detect_availability(driver)
 
-        if "currently unavailable" in source:
-            print("Still unavailable", flush=True)
-        elif "add to cart" in source or "add-to-cart-button" in source:
+        if available is True:
             print("IN STOCK! Sending alert...", flush=True)
             send_alert()
+        elif available is False:
+            print("Still unavailable", flush=True)
         else:
             print("Status unclear, will retry", flush=True)
 
@@ -74,14 +96,14 @@ def is_available():
     try:
         driver.get(PRODUCT_URL)
         time.sleep(random.uniform(3, 5))
-        source = driver.page_source.lower()
+        available = detect_availability(driver)
 
-        if "currently unavailable" in source:
-            print("Still unavailable", flush=True)
-            return False
-        if "add to cart" in source or "add-to-cart-button" in source:
+        if available is True:
             print("IN STOCK!", flush=True)
             return True
+        if available is False:
+            print("Still unavailable", flush=True)
+            return False
 
         print("Status unclear, will retry", flush=True)
         return None
