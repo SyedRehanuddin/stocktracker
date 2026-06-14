@@ -206,26 +206,33 @@ def remove_product(number_text):
 def product_list_message():
     lines = ["*Tracked products*"]
     for index, product in enumerate(state["products"], start=1):
-        status = product_status_label(product)
-        checked = product["last_checked"] or "never"
-        lines.append(
-            f"\n*{index}. {product['name']}*\n"
-            f"Status: `{status}`\n"
-            f"Last check: `{checked}`\n"
-            f"[Buy on Amazon]({product['url']})"
-        )
+        lines.append(f"\n{product_status_block(index, product)}")
+        lines.append(f"[Buy on Amazon]({product['url']})")
     return "\n".join(lines)
 
 
 def product_summary_lines():
-    lines = []
-    for index, product in enumerate(state["products"], start=1):
-        checked = product["last_checked"] or "never"
-        lines.append(
-            f"{index}. {product['name']}: `{product_status_label(product)}` "
-            f"at `{checked}`"
-        )
-    return lines
+    return [
+        product_status_block(index, product)
+        for index, product in enumerate(state["products"], start=1)
+    ]
+
+
+def product_status_block(index, product):
+    checked = product["last_checked"] or "never"
+    return (
+        f"*Product {index}*\n"
+        f"Name: {product['name']}\n"
+        f"Status: `{product_status_label(product)}`\n"
+        f"Last checked: `{checked}`"
+    )
+
+
+def product_number(product):
+    for index, tracked_product in enumerate(state["products"], start=1):
+        if tracked_product["url"] == product["url"]:
+            return index
+    return None
 
 
 def product_status_label(product):
@@ -249,7 +256,7 @@ def control_status_message():
         f"Interval: `{state['interval']} minutes`\n"
         f"Notifications: `{mode}`\n\n"
         "*Products*\n"
-        + "\n".join(product_summary_lines())
+        + "\n\n".join(product_summary_lines())
     )
 
 
@@ -269,12 +276,7 @@ def product_check_rows():
 def check_picker_message():
     lines = ["*Choose product to check*"]
     for index, product in enumerate(state["products"], start=1):
-        checked = product["last_checked"] or "never"
-        lines.append(
-            f"\n*{index}. {product['name']}*\n"
-            f"Status: `{product_status_label(product)}`\n"
-            f"Last check: `{checked}`"
-        )
+        lines.append(f"\n{product_status_block(index, product)}")
     return "\n".join(lines)
 
 
@@ -288,11 +290,10 @@ def send_check_picker():
 
 
 def single_check_summary_message(product):
-    checked = product["last_checked"] or "never"
+    index = product_number(product) or "?"
     return (
         "*Check finished*\n\n"
-        f"{product['name']}: `{product_status_label(product)}`\n"
-        f"Last check: `{checked}`\n"
+        f"{product_status_block(index, product)}\n"
         f"[Buy on Amazon]({product['url']})"
     )
 
@@ -374,9 +375,13 @@ def apply_product_result(product, result, force_notify=False):
 
     send_now = force_notify or should_send_status(product, available, previous_status)
     if send_now:
+        index = product_number(product)
+        notification_name = (
+            f"Product {index} - {product['name']}" if index else product["name"]
+        )
         send_status_alert(
             available,
-            product_name=product["name"],
+            product_name=notification_name,
             product_url=product["url"],
             **controls(),
         )
