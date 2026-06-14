@@ -1,4 +1,5 @@
 import argparse
+import html
 import re
 import time
 
@@ -32,6 +33,14 @@ UNAVAILABLE_MARKERS = (
     "currently unavailable",
     "temporarily out of stock",
 )
+PRODUCT_TITLE_PATTERN = re.compile(
+    r'id=["\']productTitle["\'][^>]*>(.*?)</',
+    re.IGNORECASE | re.DOTALL,
+)
+PAGE_TITLE_PATTERN = re.compile(
+    r"<title[^>]*>(.*?)</title>",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def detect_availability(page_html):
@@ -50,7 +59,19 @@ def detect_availability(page_html):
     return None
 
 
-def fetch_availability(product_url, session=None):
+def extract_product_title(page_html):
+    match = PRODUCT_TITLE_PATTERN.search(page_html) or PAGE_TITLE_PATTERN.search(page_html)
+    if not match:
+        return None
+
+    title = re.sub(r"<[^>]+>", " ", match.group(1))
+    title = html.unescape(title)
+    title = re.sub(r"\s+", " ", title).strip()
+    title = re.sub(r"\s*:\s*Amazon\.in.*$", "", title, flags=re.IGNORECASE)
+    return title[:180] or None
+
+
+def fetch_product_result(product_url, session=None):
     client = session or requests.Session()
     response = client.get(
         product_url,
@@ -59,16 +80,20 @@ def fetch_availability(product_url, session=None):
         allow_redirects=True,
     )
     response.raise_for_status()
-    return detect_availability(response.text)
+    return {
+        "available": detect_availability(response.text),
+        "title": extract_product_title(response.text),
+    }
 
 
 def is_available(product_url=PRODUCT_URL):
     print(f"Checking availability: {product_url}", flush=True)
     try:
-        available = fetch_availability(product_url)
+        result = fetch_product_result(product_url)
     except requests.RequestException as error:
         print(f"HTTP check failed: {error}", flush=True)
         return None
+    available = result["available"]
 
     if available is True:
         print("IN STOCK!", flush=True)
@@ -85,18 +110,19 @@ def check_urls(product_urls):
         for product_url in product_urls:
             print(f"Checking availability: {product_url}", flush=True)
             try:
-                available = fetch_availability(product_url, session=session)
+                result = fetch_product_result(product_url, session=session)
             except requests.RequestException as error:
                 print(f"HTTP check failed for {product_url}: {error}", flush=True)
-                available = None
+                result = {"available": None, "title": None}
 
+            available = result["available"]
             if available is True:
                 print("IN STOCK!", flush=True)
             elif available is False:
                 print("Still unavailable", flush=True)
             else:
                 print("Status unclear, will retry", flush=True)
-            results.append(available)
+            results.append(result)
     return results
 
 

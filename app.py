@@ -28,10 +28,16 @@ def clean_url(url):
     return url.strip().strip("<>").rstrip(").,")
 
 
+def clean_product_name(name):
+    if not name:
+        return None
+    return re.sub(r"[*_`\[\]]", "", name).strip()[:180] or None
+
+
 def make_product(url, name=None, index=1):
     return {
         "url": clean_url(url),
-        "name": name or f"Product {index}",
+        "name": clean_product_name(name) or f"Product {index}",
         "last_status": None,
         "last_checked": None,
         "notified_in_stock": False,
@@ -66,7 +72,7 @@ def default_product_urls():
 def normalize_loaded_product(product, index):
     return {
         "url": clean_url(product["url"]),
-        "name": product.get("name") or f"Product {index}",
+        "name": clean_product_name(product.get("name")) or f"Product {index}",
         "last_status": product.get("last_status"),
         "last_checked": product.get("last_checked"),
         "notified_in_stock": bool(product.get("notified_in_stock", False)),
@@ -301,8 +307,8 @@ def run_single_product_check(product_index, force_notify=False, reload_first=Fal
         product = state["products"][product_index]
         print(f"Checking {product['name']}: {product['url']}", flush=True)
         results = check_urls([product["url"]])
-        available = results[0] if results else None
-        apply_product_result(product, available, force_notify=force_notify)
+        result = results[0] if results else {"available": None, "title": None}
+        apply_product_result(product, result, force_notify=force_notify)
         save_products(state["products"])
         return product
 
@@ -352,8 +358,17 @@ def should_send_status(product, available, previous_status):
     return True
 
 
-def apply_product_result(product, available, force_notify=False):
+def apply_product_result(product, result, force_notify=False):
+    if isinstance(result, dict):
+        available = result.get("available")
+        title = clean_product_name(result.get("title"))
+    else:
+        available = result
+        title = None
+
     previous_status = product["last_status"]
+    if title:
+        product["name"] = title
     product["last_status"] = available
     product["last_checked"] = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
 
@@ -383,8 +398,8 @@ def run_next_scheduled_check():
     products = list(state["products"])
     print(f"Scheduled check for all {len(products)} products", flush=True)
     results = check_urls([product["url"] for product in products])
-    for product, available in zip(products, results):
-        apply_product_result(product, available)
+    for product, result in zip(products, results):
+        apply_product_result(product, result)
     save_products(state["products"])
     return results
 
