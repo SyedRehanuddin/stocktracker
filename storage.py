@@ -8,7 +8,9 @@ except ImportError:
     redis = None
 
 PRODUCTS_KEY = "stock_tracker:products"
+SETTINGS_KEY = "stock_tracker:settings"
 LOCAL_STORE = Path("products.json")
+LOCAL_SETTINGS_STORE = Path("settings.json")
 
 
 def get_redis_client():
@@ -51,3 +53,31 @@ def save_products(products):
             print(f"Redis save failed: {e}", flush=True)
 
     LOCAL_STORE.write_text(payload, encoding="utf-8")
+
+
+def load_settings():
+    client = get_redis_client()
+    if client:
+        try:
+            raw = client.get(SETTINGS_KEY)
+            return json.loads(raw) if raw else {}
+        except Exception as e:
+            print(f"Redis settings load failed: {e}", flush=True)
+
+    if LOCAL_SETTINGS_STORE.exists():
+        return json.loads(LOCAL_SETTINGS_STORE.read_text(encoding="utf-8"))
+
+    return {}
+
+
+def save_settings(settings):
+    payload = json.dumps(settings)
+    client = get_redis_client()
+    if client:
+        try:
+            client.set(SETTINGS_KEY, payload)
+            return
+        except Exception as e:
+            print(f"Redis settings save failed: {e}", flush=True)
+
+    LOCAL_SETTINGS_STORE.write_text(payload, encoding="utf-8")

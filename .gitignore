@@ -6,3 +6,4 @@ venv/
 .python-version
 *.log
 products.json
+settings.json

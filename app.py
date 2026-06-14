@@ -15,7 +15,7 @@ from notifier import (
     send_status_alert,
     set_bot_commands,
 )
-from storage import load_products, save_products
+from storage import load_products, load_settings, save_products, save_settings
 from tracker import check_urls
 
 app = Flask(__name__)
@@ -94,6 +94,25 @@ def initialize_products():
         for index, url in enumerate(default_product_urls(), start=1)
     ]
     save_products(state["products"])
+
+
+def initialize_settings():
+    settings = load_settings()
+    state["paused"] = bool(settings.get("paused", state["paused"]))
+    state["notify_only_on_change"] = bool(
+        settings.get("notify_only_on_change", state["notify_only_on_change"])
+    )
+    state["interval"] = int(settings.get("interval", state["interval"]))
+
+
+def persist_settings():
+    save_settings(
+        {
+            "paused": state["paused"],
+            "notify_only_on_change": state["notify_only_on_change"],
+            "interval": state["interval"],
+        }
+    )
 
 
 def reload_products_from_storage():
@@ -361,9 +380,13 @@ def run_next_scheduled_check():
         print("No products to check", flush=True)
         return None
 
-    product_index = state["next_product_index"] % len(state["products"])
-    state["next_product_index"] = (product_index + 1) % len(state["products"])
-    return run_single_product_check(product_index, reload_first=False)
+    products = list(state["products"])
+    print(f"Scheduled check for all {len(products)} products", flush=True)
+    results = check_urls([product["url"] for product in products])
+    for product, available in zip(products, results):
+        apply_product_result(product, available)
+    save_products(state["products"])
+    return results
 
 
 def scheduled_check():
@@ -461,9 +484,11 @@ def handle_command(text):
         send_control_message("*Check state cleared.*", **controls())
     elif command == "/pause":
         state["paused"] = True
+        persist_settings()
         send_control_message("*Tracker paused.*", **controls())
     elif command == "/resume":
         state["paused"] = False
+        persist_settings()
         send_control_message("*Tracker resumed.*", **controls())
     elif command == "/help":
         send_control_message(
@@ -509,14 +534,17 @@ def handle_callback(query):
         send_control_message(product_list_message(), **controls())
     elif data == "pause":
         state["paused"] = True
+        persist_settings()
         answer_callback_query(callback_id, "Paused")
         send_control_message("*Tracker paused.*", **controls())
     elif data == "resume":
         state["paused"] = False
+        persist_settings()
         answer_callback_query(callback_id, "Resumed")
         send_control_message("*Tracker resumed.*", **controls())
     elif data.startswith("interval:"):
         state["interval"] = int(data.split(":", 1)[1])
+        persist_settings()
         reschedule_checks()
         answer_callback_query(callback_id, f"Interval set to {state['interval']}m")
         send_control_message(
@@ -525,6 +553,7 @@ def handle_callback(query):
         )
     elif data == "toggle_notify":
         state["notify_only_on_change"] = not state["notify_only_on_change"]
+        persist_settings()
         mode = "changes only" if state["notify_only_on_change"] else "every check"
         answer_callback_query(callback_id, f"Notifications: {mode}")
         send_control_message(f"*Notifications set to:* `{mode}`", **controls())
@@ -568,6 +597,9 @@ def health():
         ],
         "paused": state["paused"],
         "interval_minutes": state["interval"],
+        "notification_mode": (
+            "changes_only" if state["notify_only_on_change"] else "every_check"
+        ),
         "next_product_index": state["next_product_index"],
     }
 
@@ -575,6 +607,7 @@ def health():
 if __name__ == "__main__":
     validate_config()
     initialize_products()
+    initialize_settings()
     set_bot_commands()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=run_telegram_controls, daemon=True).start()
