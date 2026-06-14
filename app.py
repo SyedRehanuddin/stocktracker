@@ -20,6 +20,7 @@ from tracker import is_available
 
 app = Flask(__name__)
 check_lock = threading.Lock()
+manual_check_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -91,6 +92,16 @@ def initialize_products():
         for index, url in enumerate(default_product_urls(), start=1)
     ]
     save_products(state["products"])
+
+
+def reload_products_from_storage():
+    loaded = load_products()
+    if not loaded:
+        return
+    state["products"] = [
+        normalize_loaded_product(product, index)
+        for index, product in enumerate(loaded, start=1)
+    ]
 
 
 def controls():
@@ -199,19 +210,21 @@ def check_summary_message():
 
 
 def run_manual_check_async():
-    if check_lock.locked():
+    if check_lock.locked() or manual_check_lock.locked():
         send_control_message("*A check is already running.*", **controls())
         return
 
     send_control_message("*Check started for all products.*", **controls())
 
     def worker():
-        try:
-            run_stock_check(force_notify=True)
-            send_control_message(check_summary_message(), **controls())
-        except Exception as e:
-            print(f"Manual check failed: {e}", flush=True)
-            send_control_message(f"*Check failed:* `{e}`", **controls())
+        with manual_check_lock:
+            try:
+                reload_products_from_storage()
+                run_stock_check(force_notify=True)
+                send_control_message(check_summary_message(), **controls())
+            except Exception as e:
+                print(f"Manual check failed: {e}", flush=True)
+                send_control_message(f"*Check failed:* `{e}`", **controls())
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -261,6 +274,9 @@ def run_stock_check(force_notify=False):
 def scheduled_check():
     if state["paused"]:
         print("Tracker is paused; skipping scheduled check", flush=True)
+        return
+    if check_lock.locked() or manual_check_lock.locked():
+        print("Another check is running; skipping scheduled check", flush=True)
         return
 
     run_stock_check()
