@@ -20,7 +20,6 @@ from tracker import check_urls
 
 app = Flask(__name__)
 check_lock = threading.Lock()
-manual_check_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -234,7 +233,7 @@ def check_summary_message():
 
 def run_manual_check_async():
     clear_stale_check_state()
-    if state["check_running"] or check_lock.locked() or not manual_check_lock.acquire(blocking=False):
+    if state["check_running"]:
         send_control_message("*A check is already running.*", **controls())
         return
 
@@ -252,7 +251,6 @@ def run_manual_check_async():
         finally:
             state["check_running"] = False
             state["check_started_at"] = None
-            manual_check_lock.release()
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -307,7 +305,7 @@ def scheduled_check():
     if state["paused"]:
         print("Tracker is paused; skipping scheduled check", flush=True)
         return
-    if state["check_running"] or check_lock.locked() or manual_check_lock.locked():
+    if state["check_running"] or check_lock.locked():
         print("Another check is running; skipping scheduled check", flush=True)
         return
 
