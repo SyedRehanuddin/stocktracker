@@ -152,7 +152,7 @@ def remove_product(number_text):
 def product_list_message():
     lines = ["*Tracked products*"]
     for index, product in enumerate(state["products"], start=1):
-        status = status_label(product["last_status"])
+        status = product_status_label(product)
         checked = product["last_checked"] or "never"
         lines.append(
             f"\n*{index}. {product['name']}*\n"
@@ -161,6 +161,23 @@ def product_list_message():
             f"[Buy on Amazon]({product['url']})"
         )
     return "\n".join(lines)
+
+
+def product_summary_lines():
+    lines = []
+    for index, product in enumerate(state["products"], start=1):
+        checked = product["last_checked"] or "never"
+        lines.append(
+            f"{index}. {product['name']}: `{product_status_label(product)}` "
+            f"at `{checked}`"
+        )
+    return lines
+
+
+def product_status_label(product):
+    if not product["last_checked"]:
+        return "not checked yet"
+    return status_label(product["last_status"])
 
 
 def control_status_message():
@@ -173,8 +190,13 @@ def control_status_message():
         f"Paused: `{paused}`\n"
         f"Interval: `{state['interval']} minutes`\n"
         f"Notifications: `{mode}`\n\n"
-        "Use `/list` to see each product."
+        "*Products*\n"
+        + "\n".join(product_summary_lines())
     )
+
+
+def check_summary_message():
+    return "*Check finished*\n\n" + "\n".join(product_summary_lines())
 
 
 def should_send_status(product, available, previous_status):
@@ -297,6 +319,7 @@ def handle_command(text):
     elif command == "/check":
         send_control_message("*Check started for all products.*", **controls())
         run_stock_check(force_notify=True)
+        send_control_message(check_summary_message(), **controls())
     elif command == "/pause":
         state["paused"] = True
         send_control_message("*Tracker paused.*", **controls())
@@ -325,6 +348,7 @@ def handle_callback(query):
     if data == "check":
         answer_callback_query(callback_id, "Checking all products...")
         run_stock_check(force_notify=True)
+        send_control_message(check_summary_message(), **controls())
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
         send_control_message(control_status_message(), **controls())
@@ -388,7 +412,7 @@ def health():
             {
                 "name": product["name"],
                 "url": product["url"],
-                "last_stock_status": status_label(product["last_status"]),
+                "last_stock_status": product_status_label(product),
                 "last_checked": product["last_checked"],
             }
             for product in state["products"]

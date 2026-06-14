@@ -28,8 +28,11 @@ def get_redis_client():
 def load_products():
     client = get_redis_client()
     if client:
-        raw = client.get(PRODUCTS_KEY)
-        return json.loads(raw) if raw else []
+        try:
+            raw = client.get(PRODUCTS_KEY)
+            return json.loads(raw) if raw else []
+        except Exception as e:
+            print(f"Redis load failed: {e}", flush=True)
 
     if LOCAL_STORE.exists():
         return json.loads(LOCAL_STORE.read_text(encoding="utf-8"))
@@ -41,7 +44,10 @@ def save_products(products):
     payload = json.dumps(products)
     client = get_redis_client()
     if client:
-        client.set(PRODUCTS_KEY, payload)
-        return
+        try:
+            client.set(PRODUCTS_KEY, payload)
+            return
+        except Exception as e:
+            print(f"Redis save failed: {e}", flush=True)
 
     LOCAL_STORE.write_text(payload, encoding="utf-8")
