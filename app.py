@@ -93,11 +93,10 @@ def initialize_products():
     save_products(state["products"])
 
 
-def controls(product_url=None):
+def controls():
     return {
         "paused": state["paused"],
         "notify_only_on_change": state["notify_only_on_change"],
-        "product_url": product_url,
     }
 
 
