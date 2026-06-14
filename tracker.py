@@ -1,168 +1,113 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from notifier import send_alert, send_status_alert
-from config import PRODUCT_URL, validate_config
-import schedule
-import time
-import random
 import argparse
-import os
-from pathlib import Path
+import re
+import time
 
+import requests
+import schedule
 
-def get_driver():
-    options = Options()
-    options.page_load_strategy = "eager"
-    chrome_bin = os.getenv("CHROME_BIN")
-    if chrome_bin:
-        options.binary_location = chrome_bin
+from config import PRODUCT_URL, validate_config
+from notifier import send_alert, send_status_alert
 
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--disable-background-timer-throttling")
-    options.add_argument("--disable-breakpad")
-    options.add_argument("--disable-component-update")
-    options.add_argument("--disable-features=MediaRouter,OptimizationHints,Translate")
-    options.add_argument("--disable-ipc-flooding-protection")
-    options.add_argument("--disable-renderer-backgrounding")
-    options.add_argument("--disable-sync")
-    options.add_argument("--disable-default-apps")
-    options.add_argument("--metrics-recording-only")
-    options.add_argument("--mute-audio")
-    options.add_argument("--no-first-run")
-    options.add_argument("--no-zygote")
-    options.add_argument("--renderer-process-limit=1")
-    options.add_argument("--js-flags=--max-old-space-size=64")
-    options.add_argument("--blink-settings=imagesEnabled=false")
-    options.add_argument("--window-size=800,600")
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+REQUEST_TIMEOUT = 25
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Linux; Android 13; Pixel 7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-    driver_path = os.getenv("CHROMEDRIVER_PATH") or get_cached_chromedriver()
-    if driver_path:
-        driver = webdriver.Chrome(service=Service(str(driver_path)), options=options)
-    else:
-        driver = webdriver.Chrome(options=options)
-    driver.set_page_load_timeout(25)
-    driver.set_script_timeout(15)
-    return driver
+        "Chrome/124.0.0.0 Mobile Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-IN,en;q=0.9",
+    "Cache-Control": "no-cache",
+}
+BOT_CHECK_MARKERS = (
+    "validatecaptcha",
+    "robot check",
+    "enter the characters you see below",
+)
+AVAILABLE_PATTERNS = (
+    re.compile(r'id=["\']add-to-cart-button["\']', re.IGNORECASE),
+    re.compile(r'id=["\']buy-now-button["\']', re.IGNORECASE),
+)
+UNAVAILABLE_MARKERS = (
+    "currently unavailable",
+    "temporarily out of stock",
+)
 
 
-def get_cached_chromedriver():
-    if os.name != "nt":
+def detect_availability(page_html):
+    html = page_html.lower()
+
+    if any(marker in html for marker in BOT_CHECK_MARKERS):
+        print("Amazon returned a bot-check page", flush=True)
         return None
 
-    cache_root = Path.home() / ".wdm" / "drivers" / "chromedriver"
-    drivers = sorted(
-        cache_root.glob("**/chromedriver.exe"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    return drivers[0] if drivers else None
-
-
-def detect_availability(driver):
-    add_to_cart_buttons = driver.find_elements(By.ID, "add-to-cart-button")
-    buy_now_buttons = driver.find_elements(By.ID, "buy-now-button")
-
-    if any(button.is_displayed() and button.is_enabled() for button in add_to_cart_buttons):
-        return True
-    if any(button.is_displayed() and button.is_enabled() for button in buy_now_buttons):
+    if any(pattern.search(page_html) for pattern in AVAILABLE_PATTERNS):
         return True
 
-    visible_status_text = " ".join(
-        element.text.lower()
-        for selector in ("#availability", "#outOfStock", "#buybox")
-        for element in driver.find_elements(By.CSS_SELECTOR, selector)
-        if element.is_displayed()
-    )
-
-    if "currently unavailable" in visible_status_text:
+    if any(marker in html for marker in UNAVAILABLE_MARKERS):
         return False
 
     return None
 
 
-def check_availability(product_url=PRODUCT_URL):
-    print("Checking availability...", flush=True)
-    driver = get_driver()
-    try:
-        driver.get(product_url)
-        time.sleep(random.uniform(3, 5))
-        available = detect_availability(driver)
-
-        if available is True:
-            print("IN STOCK! Sending alert...", flush=True)
-            send_alert()
-        elif available is False:
-            print("Still unavailable", flush=True)
-        else:
-            print("Status unclear, will retry", flush=True)
-
-    except Exception as e:
-        print(f"Error: {e}", flush=True)
-    finally:
-        driver.quit()
+def fetch_availability(product_url, session=None):
+    client = session or requests.Session()
+    response = client.get(
+        product_url,
+        headers=HEADERS,
+        timeout=REQUEST_TIMEOUT,
+        allow_redirects=True,
+    )
+    response.raise_for_status()
+    return detect_availability(response.text)
 
 
 def is_available(product_url=PRODUCT_URL):
-    print("Checking availability...", flush=True)
-    driver = get_driver()
+    print(f"Checking availability: {product_url}", flush=True)
     try:
-        driver.get(product_url)
-        time.sleep(random.uniform(3, 5))
-        available = detect_availability(driver)
+        available = fetch_availability(product_url)
+    except requests.RequestException as error:
+        print(f"HTTP check failed: {error}", flush=True)
+        return None
 
-        if available is True:
-            print("IN STOCK!", flush=True)
-            return True
-        if available is False:
-            print("Still unavailable", flush=True)
-            return False
-
+    if available is True:
+        print("IN STOCK!", flush=True)
+    elif available is False:
+        print("Still unavailable", flush=True)
+    else:
         print("Status unclear, will retry", flush=True)
-        return None
-    except Exception as e:
-        print(f"Error: {e}", flush=True)
-        return None
-    finally:
-        driver.quit()
+    return available
 
 
 def check_urls(product_urls):
-    driver = get_driver()
     results = []
-    try:
+    with requests.Session() as session:
         for product_url in product_urls:
             print(f"Checking availability: {product_url}", flush=True)
             try:
-                driver.get(product_url)
-                time.sleep(random.uniform(1.5, 3))
-                available = detect_availability(driver)
+                available = fetch_availability(product_url, session=session)
+            except requests.RequestException as error:
+                print(f"HTTP check failed for {product_url}: {error}", flush=True)
+                available = None
 
-                if available is True:
-                    print("IN STOCK!", flush=True)
-                elif available is False:
-                    print("Still unavailable", flush=True)
-                else:
-                    print("Status unclear, will retry", flush=True)
-
-                results.append(available)
-            except Exception as e:
-                print(f"Error checking {product_url}: {e}", flush=True)
-                results.append(None)
-    finally:
-        driver.quit()
-
+            if available is True:
+                print("IN STOCK!", flush=True)
+            elif available is False:
+                print("Still unavailable", flush=True)
+            else:
+                print("Status unclear, will retry", flush=True)
+            results.append(available)
     return results
+
+
+def check_availability(product_url=PRODUCT_URL):
+    available = is_available(product_url)
+    if available is True:
+        send_alert()
+    elif available is False:
+        send_status_alert(False)
+    else:
+        send_status_alert(None)
 
 
 def main():
@@ -180,27 +125,8 @@ def main():
         check_availability()
         return
 
-    notified_in_stock = False
-
-    def scheduled_check():
-        nonlocal notified_in_stock
-        available = is_available()
-        if available is True and not notified_in_stock:
-            print("Sending Telegram alert...", flush=True)
-            send_alert()
-            notified_in_stock = True
-        elif available is False:
-            print("Sending unavailable Telegram status...", flush=True)
-            send_status_alert(False)
-            notified_in_stock = False
-        elif available is None:
-            print("Sending unclear Telegram status...", flush=True)
-            send_status_alert(None)
-
-    schedule.every(15).minutes.do(scheduled_check)
-
+    schedule.every(15).minutes.do(check_availability)
     print("Tracker started - checking every 15 mins", flush=True)
-    scheduled_check()
 
     while True:
         schedule.run_pending()

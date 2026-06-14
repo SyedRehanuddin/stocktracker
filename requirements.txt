@@ -1,4 +1,3 @@
-selenium
 requests
 schedule
 python-dotenv
