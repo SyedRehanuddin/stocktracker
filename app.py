@@ -46,6 +46,7 @@ state = {
     "interval": int(os.getenv("CHECK_INTERVAL_MINUTES", "15")),
     "telegram_offset": None,
     "awaiting_product_url": False,
+    "next_product_index": 0,
     "products": [],
 }
 
@@ -227,24 +228,91 @@ def control_status_message():
     )
 
 
-def check_summary_message():
-    return "*Check finished*\n\n" + "\n".join(product_summary_lines())
+def product_check_rows():
+    rows = []
+    row = []
+    for index, product in enumerate(state["products"], start=1):
+        row.append({"text": f"Check {index}", "callback_data": f"check_product:{index}"})
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows
 
 
-def run_manual_check_async():
+def check_picker_message():
+    lines = ["*Choose product to check*"]
+    for index, product in enumerate(state["products"], start=1):
+        checked = product["last_checked"] or "never"
+        lines.append(
+            f"\n*{index}. {product['name']}*\n"
+            f"Status: `{product_status_label(product)}`\n"
+            f"Last check: `{checked}`"
+        )
+    return "\n".join(lines)
+
+
+def send_check_picker():
+    reload_products_from_storage()
+    send_control_message(
+        check_picker_message(),
+        extra_rows=product_check_rows(),
+        **controls(),
+    )
+
+
+def single_check_summary_message(product):
+    checked = product["last_checked"] or "never"
+    return (
+        "*Check finished*\n\n"
+        f"{product['name']}: `{product_status_label(product)}`\n"
+        f"Last check: `{checked}`\n"
+        f"[Buy on Amazon]({product['url']})"
+    )
+
+
+def run_single_product_check(product_index, force_notify=False, reload_first=False):
+    with check_lock:
+        if reload_first:
+            reload_products_from_storage()
+        if product_index < 0 or product_index >= len(state["products"]):
+            return None
+
+        product = state["products"][product_index]
+        print(f"Checking {product['name']}: {product['url']}", flush=True)
+        results = check_urls([product["url"]])
+        available = results[0] if results else None
+        apply_product_result(product, available, force_notify=force_notify)
+        save_products(state["products"])
+        return product
+
+
+def run_single_product_check_async(product_index):
     clear_stale_check_state()
-    if state["check_running"]:
+    if state["check_running"] or check_lock.locked():
         send_control_message("*A check is already running.*", **controls())
         return
 
+    reload_products_from_storage()
+    if product_index < 0 or product_index >= len(state["products"]):
+        send_control_message("*That product number is not in the list.*", **controls())
+        return
+
+    product = state["products"][product_index]
     state["check_running"] = True
     state["check_started_at"] = now_ist()
-    send_control_message("*Check started for all products.*", **controls())
+    send_control_message(f"*Check started:* {product['name']}", **controls())
 
     def worker():
         try:
-            run_stock_check(force_notify=True, reload_first=True)
-            send_control_message(check_summary_message(), **controls())
+            checked_product = run_single_product_check(
+                product_index,
+                force_notify=True,
+                reload_first=True,
+            )
+            if checked_product:
+                send_control_message(single_check_summary_message(checked_product), **controls())
         except Exception as e:
             print(f"Manual check failed: {e}", flush=True)
             send_control_message(f"*Check failed:* `{e}`", **controls())
@@ -287,17 +355,15 @@ def apply_product_result(product, available, force_notify=False):
     return available
 
 
-def run_stock_check(force_notify=False, reload_first=False):
-    with check_lock:
-        if reload_first:
-            reload_products_from_storage()
-        print(f"Checking {len(state['products'])} products", flush=True)
-        products = list(state["products"])
-        results = check_urls([product["url"] for product in products])
-        for product, available in zip(products, results):
-            apply_product_result(product, available, force_notify=force_notify)
-        save_products(state["products"])
-        return results
+def run_next_scheduled_check():
+    reload_products_from_storage()
+    if not state["products"]:
+        print("No products to check", flush=True)
+        return None
+
+    product_index = state["next_product_index"] % len(state["products"])
+    state["next_product_index"] = (product_index + 1) % len(state["products"])
+    return run_single_product_check(product_index, reload_first=False)
 
 
 def scheduled_check():
@@ -309,7 +375,13 @@ def scheduled_check():
         print("Another check is running; skipping scheduled check", flush=True)
         return
 
-    run_stock_check(reload_first=True)
+    state["check_running"] = True
+    state["check_started_at"] = now_ist()
+    try:
+        run_next_scheduled_check()
+    finally:
+        state["check_running"] = False
+        state["check_started_at"] = None
 
 
 def reschedule_checks():
@@ -383,7 +455,7 @@ def handle_command(text):
             ok, message = remove_product(parts[1])
             send_control_message(f"*{message}*", **controls())
     elif command == "/check":
-        run_manual_check_async()
+        send_check_picker()
     elif command == "/cancel":
         state["check_running"] = False
         state["check_started_at"] = None
@@ -402,7 +474,7 @@ def handle_command(text):
             "/list - list tracked products\n"
             "/add - add an Amazon product URL\n"
             "/remove 2 - remove product number 2\n"
-            "/check - check all products now\n"
+            "/check - choose a product to check now\n"
             "/pause - pause scheduled checks\n"
             "/resume - resume scheduled checks",
             **controls(),
@@ -414,8 +486,12 @@ def handle_callback(query):
     callback_id = query.get("id")
 
     if data == "check":
-        answer_callback_query(callback_id, "Check started")
-        run_manual_check_async()
+        answer_callback_query(callback_id, "Choose a product")
+        send_check_picker()
+    elif data.startswith("check_product:"):
+        product_number = int(data.split(":", 1)[1])
+        answer_callback_query(callback_id, f"Checking Product {product_number}")
+        run_single_product_check_async(product_number - 1)
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
         reload_products_from_storage()
@@ -493,6 +569,7 @@ def health():
         ],
         "paused": state["paused"],
         "interval_minutes": state["interval"],
+        "next_product_index": state["next_product_index"],
     }
 
 

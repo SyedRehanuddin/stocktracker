@@ -8,6 +8,7 @@ def build_buttons(
     paused=False,
     notify_only_on_change=False,
     product_url=None,
+    extra_rows=None,
 ):
     pause_text = "Resume" if paused else "Pause"
     pause_action = "resume" if paused else "pause"
@@ -15,6 +16,8 @@ def build_buttons(
     rows = []
     if product_url:
         rows.append([{"text": "Buy on Amazon", "url": product_url}])
+    if extra_rows:
+        rows.extend(extra_rows)
 
     rows.extend(
         [
@@ -53,6 +56,7 @@ def send_telegram_message(
     paused=False,
     notify_only_on_change=False,
     product_url=None,
+    extra_rows=None,
 ):
     response = telegram_request(
         "sendMessage",
@@ -65,6 +69,7 @@ def send_telegram_message(
                 paused=paused,
                 notify_only_on_change=notify_only_on_change,
                 product_url=product_url,
+                extra_rows=extra_rows,
             ),
         },
     )
@@ -135,7 +140,7 @@ def set_bot_commands():
             "commands": [
                 {"command": "start", "description": "Show tracker dashboard"},
                 {"command": "status", "description": "Show current stock status"},
-                {"command": "check", "description": "Check all products now"},
+                {"command": "check", "description": "Choose a product to check now"},
                 {"command": "add", "description": "Add an Amazon product URL"},
                 {"command": "list", "description": "List tracked products"},
                 {"command": "remove", "description": "Remove a product by number"},
