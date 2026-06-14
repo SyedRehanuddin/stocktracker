@@ -35,8 +35,12 @@ def get_driver():
     )
     driver_path = os.getenv("CHROMEDRIVER_PATH") or get_cached_chromedriver()
     if driver_path:
-        return webdriver.Chrome(service=Service(str(driver_path)), options=options)
-    return webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(service=Service(str(driver_path)), options=options)
+    else:
+        driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(35)
+    driver.set_script_timeout(20)
+    return driver
 
 
 def get_cached_chromedriver():
@@ -128,7 +132,7 @@ def check_urls(product_urls):
             print(f"Checking availability: {product_url}", flush=True)
             try:
                 driver.get(product_url)
-                time.sleep(random.uniform(2, 4))
+                time.sleep(random.uniform(1.5, 3))
                 available = detect_availability(driver)
 
                 if available is True:

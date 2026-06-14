@@ -42,6 +42,8 @@ def make_product(url, name=None, index=1):
 state = {
     "paused": False,
     "notify_only_on_change": False,
+    "check_running": False,
+    "check_started_at": None,
     "interval": int(os.getenv("CHECK_INTERVAL_MINUTES", "15")),
     "telegram_offset": None,
     "awaiting_product_url": False,
@@ -109,6 +111,23 @@ def controls():
         "paused": state["paused"],
         "notify_only_on_change": state["notify_only_on_change"],
     }
+
+
+def now_ist():
+    return datetime.now(IST)
+
+
+def check_age_seconds():
+    if not state["check_started_at"]:
+        return 0
+    return (now_ist() - state["check_started_at"]).total_seconds()
+
+
+def clear_stale_check_state():
+    if state["check_running"] and check_age_seconds() > 480:
+        print("Clearing stale check state", flush=True)
+        state["check_running"] = False
+        state["check_started_at"] = None
 
 
 def status_label(available):
@@ -193,11 +212,15 @@ def product_status_label(product):
 def control_status_message():
     mode = "changes only" if state["notify_only_on_change"] else "every check"
     paused = "yes" if state["paused"] else "no"
+    checking = "yes" if state["check_running"] else "no"
+    age = int(check_age_seconds())
 
     return (
         "*Tracker status*\n\n"
         f"Products: `{len(state['products'])}`\n"
         f"Paused: `{paused}`\n"
+        f"Check running: `{checking}`\n"
+        f"Check age: `{age} seconds`\n"
         f"Interval: `{state['interval']} minutes`\n"
         f"Notifications: `{mode}`\n\n"
         "*Products*\n"
@@ -210,10 +233,13 @@ def check_summary_message():
 
 
 def run_manual_check_async():
-    if check_lock.locked() or not manual_check_lock.acquire(blocking=False):
+    clear_stale_check_state()
+    if state["check_running"] or check_lock.locked() or not manual_check_lock.acquire(blocking=False):
         send_control_message("*A check is already running.*", **controls())
         return
 
+    state["check_running"] = True
+    state["check_started_at"] = now_ist()
     send_control_message("*Check started for all products.*", **controls())
 
     def worker():
@@ -224,6 +250,8 @@ def run_manual_check_async():
             print(f"Manual check failed: {e}", flush=True)
             send_control_message(f"*Check failed:* `{e}`", **controls())
         finally:
+            state["check_running"] = False
+            state["check_started_at"] = None
             manual_check_lock.release()
 
     threading.Thread(target=worker, daemon=True).start()
@@ -275,10 +303,11 @@ def run_stock_check(force_notify=False, reload_first=False):
 
 
 def scheduled_check():
+    clear_stale_check_state()
     if state["paused"]:
         print("Tracker is paused; skipping scheduled check", flush=True)
         return
-    if check_lock.locked() or manual_check_lock.locked():
+    if state["check_running"] or check_lock.locked() or manual_check_lock.locked():
         print("Another check is running; skipping scheduled check", flush=True)
         return
 
@@ -357,6 +386,10 @@ def handle_command(text):
             send_control_message(f"*{message}*", **controls())
     elif command == "/check":
         run_manual_check_async()
+    elif command == "/cancel":
+        state["check_running"] = False
+        state["check_started_at"] = None
+        send_control_message("*Check state cleared.*", **controls())
     elif command == "/pause":
         state["paused"] = True
         send_control_message("*Tracker paused.*", **controls())
@@ -389,6 +422,11 @@ def handle_callback(query):
         answer_callback_query(callback_id, "Sending status")
         reload_products_from_storage()
         send_control_message(control_status_message(), **controls())
+    elif data == "cancel_check":
+        state["check_running"] = False
+        state["check_started_at"] = None
+        answer_callback_query(callback_id, "Check state cleared")
+        send_control_message("*Check state cleared.*", **controls())
     elif data == "add":
         answer_callback_query(callback_id, "Send a product link")
         prompt_for_url()

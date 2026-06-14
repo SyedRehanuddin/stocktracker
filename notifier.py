@@ -26,6 +26,7 @@ def build_buttons(
                 {"text": "Add Product", "callback_data": "add"},
                 {"text": "List Products", "callback_data": "list"},
             ],
+            [{"text": "Cancel Check", "callback_data": "cancel_check"}],
             [{"text": pause_text, "callback_data": pause_action}],
             [
                 {"text": "5m", "callback_data": "interval:5"},
@@ -138,6 +139,7 @@ def set_bot_commands():
                 {"command": "add", "description": "Add an Amazon product URL"},
                 {"command": "list", "description": "List tracked products"},
                 {"command": "remove", "description": "Remove a product by number"},
+                {"command": "cancel", "description": "Cancel stuck check state"},
                 {"command": "pause", "description": "Pause scheduled checks"},
                 {"command": "resume", "description": "Resume scheduled checks"},
                 {"command": "help", "description": "Show commands and buttons"},
