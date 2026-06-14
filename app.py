@@ -210,21 +210,21 @@ def check_summary_message():
 
 
 def run_manual_check_async():
-    if check_lock.locked() or manual_check_lock.locked():
+    if check_lock.locked() or not manual_check_lock.acquire(blocking=False):
         send_control_message("*A check is already running.*", **controls())
         return
 
     send_control_message("*Check started for all products.*", **controls())
 
     def worker():
-        with manual_check_lock:
-            try:
-                reload_products_from_storage()
-                run_stock_check(force_notify=True)
-                send_control_message(check_summary_message(), **controls())
-            except Exception as e:
-                print(f"Manual check failed: {e}", flush=True)
-                send_control_message(f"*Check failed:* `{e}`", **controls())
+        try:
+            run_stock_check(force_notify=True, reload_first=True)
+            send_control_message(check_summary_message(), **controls())
+        except Exception as e:
+            print(f"Manual check failed: {e}", flush=True)
+            send_control_message(f"*Check failed:* `{e}`", **controls())
+        finally:
+            manual_check_lock.release()
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -258,16 +258,19 @@ def run_product_check(product, force_notify=False):
         product["notified_in_stock"] = True
     elif available is False:
         product["notified_in_stock"] = False
-    save_products(state["products"])
 
     return available
 
 
-def run_stock_check(force_notify=False):
+def run_stock_check(force_notify=False, reload_first=False):
     with check_lock:
+        if reload_first:
+            reload_products_from_storage()
+        print(f"Checking {len(state['products'])} products", flush=True)
         results = []
         for product in list(state["products"]):
             results.append(run_product_check(product, force_notify=force_notify))
+        save_products(state["products"])
         return results
 
 
@@ -279,7 +282,7 @@ def scheduled_check():
         print("Another check is running; skipping scheduled check", flush=True)
         return
 
-    run_stock_check()
+    run_stock_check(reload_first=True)
 
 
 def reschedule_checks():
@@ -333,10 +336,13 @@ def handle_command(text):
     command = parts[0].lower()
 
     if command == "/start":
+        reload_products_from_storage()
         send_control_message(control_status_message(), **controls())
     elif command == "/status":
+        reload_products_from_storage()
         send_control_message(control_status_message(), **controls())
     elif command == "/list":
+        reload_products_from_storage()
         send_control_message(product_list_message(), **controls())
     elif command == "/add":
         if len(parts) > 1:
@@ -381,12 +387,14 @@ def handle_callback(query):
         run_manual_check_async()
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
+        reload_products_from_storage()
         send_control_message(control_status_message(), **controls())
     elif data == "add":
         answer_callback_query(callback_id, "Send a product link")
         prompt_for_url()
     elif data == "list":
         answer_callback_query(callback_id, "Sending product list")
+        reload_products_from_storage()
         send_control_message(product_list_message(), **controls())
     elif data == "pause":
         state["paused"] = True
