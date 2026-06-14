@@ -239,7 +239,7 @@ def run_product_check(product, force_notify=False):
             available,
             product_name=product["name"],
             product_url=product["url"],
-            **controls(product["url"]),
+            **controls(),
         )
 
     if available is True:
