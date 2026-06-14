@@ -397,7 +397,6 @@ def run_scheduler():
         f"Tracker web service started - checking every {state['interval']} mins",
         flush=True,
     )
-    scheduled_check()
 
     while True:
         schedule.run_pending()

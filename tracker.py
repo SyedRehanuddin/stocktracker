@@ -14,6 +14,7 @@ from pathlib import Path
 
 def get_driver():
     options = Options()
+    options.page_load_strategy = "eager"
     chrome_bin = os.getenv("CHROME_BIN")
     if chrome_bin:
         options.binary_location = chrome_bin
@@ -24,10 +25,22 @@ def get_driver():
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-breakpad")
+    options.add_argument("--disable-component-update")
+    options.add_argument("--disable-features=MediaRouter,OptimizationHints,Translate")
+    options.add_argument("--disable-ipc-flooding-protection")
+    options.add_argument("--disable-renderer-backgrounding")
     options.add_argument("--disable-sync")
     options.add_argument("--disable-default-apps")
+    options.add_argument("--metrics-recording-only")
+    options.add_argument("--mute-audio")
+    options.add_argument("--no-first-run")
+    options.add_argument("--no-zygote")
+    options.add_argument("--renderer-process-limit=1")
+    options.add_argument("--js-flags=--max-old-space-size=64")
     options.add_argument("--blink-settings=imagesEnabled=false")
-    options.add_argument("--window-size=1024,768")
+    options.add_argument("--window-size=800,600")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -38,8 +51,8 @@ def get_driver():
         driver = webdriver.Chrome(service=Service(str(driver_path)), options=options)
     else:
         driver = webdriver.Chrome(options=options)
-    driver.set_page_load_timeout(35)
-    driver.set_script_timeout(20)
+    driver.set_page_load_timeout(25)
+    driver.set_script_timeout(15)
     return driver
 
 
