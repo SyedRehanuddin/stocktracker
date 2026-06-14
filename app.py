@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import schedule
 from flask import Flask
 
-from config import PRODUCT_URL, TELEGRAM_CHAT_ID, validate_config
+from config import ADDITIONAL_PRODUCT_URLS, PRODUCT_URL, TELEGRAM_CHAT_ID, validate_config
 from notifier import (
     answer_callback_query,
     get_updates,
@@ -15,6 +15,7 @@ from notifier import (
     send_status_alert,
     set_bot_commands,
 )
+from storage import load_products, save_products
 from tracker import is_available
 
 app = Flask(__name__)
@@ -27,10 +28,10 @@ def clean_url(url):
     return url.strip().strip("<>").rstrip(").,")
 
 
-def make_product(url, name=None):
+def make_product(url, name=None, index=1):
     return {
         "url": clean_url(url),
-        "name": name or f"Product {len(state['products']) + 1}",
+        "name": name or f"Product {index}",
         "last_status": None,
         "last_checked": None,
         "notified_in_stock": False,
@@ -45,7 +46,51 @@ state = {
     "awaiting_product_url": False,
     "products": [],
 }
-state["products"].append(make_product(PRODUCT_URL, "Product 1"))
+
+
+def default_product_urls():
+    urls = [PRODUCT_URL]
+    urls.extend(
+        [
+            clean_url(url)
+            for url in ADDITIONAL_PRODUCT_URLS.replace("\n", ",").split(",")
+            if clean_url(url)
+        ]
+    )
+    return list(dict.fromkeys(urls))
+
+
+def normalize_loaded_product(product, index):
+    return {
+        "url": clean_url(product["url"]),
+        "name": product.get("name") or f"Product {index}",
+        "last_status": product.get("last_status"),
+        "last_checked": product.get("last_checked"),
+        "notified_in_stock": bool(product.get("notified_in_stock", False)),
+    }
+
+
+def initialize_products():
+    loaded = load_products()
+    if loaded:
+        state["products"] = [
+            normalize_loaded_product(product, index)
+            for index, product in enumerate(loaded, start=1)
+        ]
+        existing_urls = {product["url"] for product in state["products"]}
+        for url in default_product_urls():
+            if url not in existing_urls:
+                state["products"].append(
+                    make_product(url, index=len(state["products"]) + 1)
+                )
+        save_products(state["products"])
+        return
+
+    state["products"] = [
+        make_product(url, f"Product {index}", index=index)
+        for index, url in enumerate(default_product_urls(), start=1)
+    ]
+    save_products(state["products"])
 
 
 def controls(product_url=None):
@@ -82,7 +127,8 @@ def add_product(url):
     if product_exists(url):
         return False, "That product is already being tracked."
 
-    state["products"].append(make_product(url))
+    state["products"].append(make_product(url, index=len(state["products"]) + 1))
+    save_products(state["products"])
     return True, f"Added Product {len(state['products'])}."
 
 
@@ -99,6 +145,7 @@ def remove_product(number_text):
         return False, "Keep at least one product in the tracker."
 
     removed = state["products"].pop(number - 1)
+    save_products(state["products"])
     return True, f"Removed {removed['name']}."
 
 
@@ -111,7 +158,7 @@ def product_list_message():
             f"\n*{index}. {product['name']}*\n"
             f"Status: `{status}`\n"
             f"Last check: `{checked}`\n"
-            f"{product['url']}"
+            f"[Buy on Amazon]({product['url']})"
         )
     return "\n".join(lines)
 
@@ -159,6 +206,7 @@ def run_product_check(product, force_notify=False):
         product["notified_in_stock"] = True
     elif available is False:
         product["notified_in_stock"] = False
+    save_products(state["products"])
 
     return available
 
@@ -352,6 +400,7 @@ def health():
 
 if __name__ == "__main__":
     validate_config()
+    initialize_products()
     set_bot_commands()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=run_telegram_controls, daemon=True).start()

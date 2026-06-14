@@ -10,5 +10,9 @@ services:
         sync: false
       - key: PRODUCT_URL
         value: https://www.amazon.in/dp/B0G2GMN6Y6
+      - key: ADDITIONAL_PRODUCT_URLS
+        value: https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186
       - key: CHECK_INTERVAL_MINUTES
         value: 15
+      - key: REDIS_URL
+        sync: false

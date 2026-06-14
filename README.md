@@ -17,7 +17,9 @@ python -m venv venv
 TELEGRAM_BOT_TOKEN=your_token
 TELEGRAM_CHAT_ID=your_chat_id
 PRODUCT_URL=https://www.amazon.in/dp/B0G2GMN6Y6
+ADDITIONAL_PRODUCT_URLS=https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186
 CHECK_INTERVAL_MINUTES=15
+REDIS_URL=your_render_key_value_redis_url
 ```
 
 ## Telegram Controls
@@ -46,7 +48,7 @@ Commands also work:
 /help
 ```
 
-Links added from Telegram are kept in memory. On Render Free, they may reset after a redeploy or service restart.
+Links added from Telegram are saved to Redis when `REDIS_URL` is set. Without Redis, local testing saves them to `products.json`.
 
 ## Deploy
 

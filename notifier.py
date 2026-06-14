@@ -12,11 +12,12 @@ def build_buttons(
     pause_text = "Resume" if paused else "Pause"
     pause_action = "resume" if paused else "pause"
     notify_text = "Notify: changes only" if notify_only_on_change else "Notify: every check"
-    buy_url = product_url or PRODUCT_URL
+    rows = []
+    if product_url:
+        rows.append([{"text": "Buy on Amazon", "url": product_url}])
 
-    return {
-        "inline_keyboard": [
-            [{"text": "Buy on Amazon", "url": buy_url}],
+    rows.extend(
+        [
             [
                 {"text": "Check Now", "callback_data": "check"},
                 {"text": "Status", "callback_data": "status"},
@@ -34,7 +35,9 @@ def build_buttons(
             ],
             [{"text": notify_text, "callback_data": "toggle_notify"}],
         ]
-    }
+    )
+
+    return {"inline_keyboard": rows}
 
 
 def telegram_request(method, payload):
