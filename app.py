@@ -122,6 +122,7 @@ def make_product(url, name=None, index=1):
         "last_status": None,
         "last_checked": None,
         "last_success_epoch": None,
+        "last_price": None,
         "notified_in_stock": False,
     }
 
@@ -133,6 +134,7 @@ def normalize_product(product, index):
         "last_status": product.get("last_status"),
         "last_checked": product.get("last_checked"),
         "last_success_epoch": product.get("last_success_epoch"),
+        "last_price": product.get("last_price"),
         "notified_in_stock": bool(product.get("notified_in_stock", False)),
     }
 
@@ -169,10 +171,12 @@ def product_status_label(product):
 
 def product_status_block(index, product):
     checked = product["last_checked"] or "never"
+    price = product.get("last_price") or "not found"
     return (
         f"*Product {index}*\n"
         f"Name: {product['name']}\n"
         f"Status: `{product_status_label(product)}`\n"
+        f"Price: `{price}`\n"
         f"Last checked: `{checked}`"
     )
 
@@ -348,13 +352,17 @@ def apply_product_result(chat_id, products, product, result, force_notify=False)
     if isinstance(result, dict):
         available = result.get("available")
         title = clean_product_name(result.get("title"))
+        price = result.get("price")
     else:
         available = result
         title = None
+        price = None
 
     previous_status = product["last_status"]
     if title:
         product["name"] = title
+    if price:
+        product["last_price"] = price
     product["last_status"] = available
     product["last_checked"] = now_text()
     if available is True or available is False:
@@ -370,6 +378,7 @@ def apply_product_result(chat_id, products, product, result, force_notify=False)
             available,
             product_name=notification_name,
             product_url=product["url"],
+            price=product.get("last_price"),
             chat_id=chat_id,
             **controls(settings),
         )

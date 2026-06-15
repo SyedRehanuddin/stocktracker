@@ -53,6 +53,17 @@ PAGE_TITLE_PATTERN = re.compile(
     r"<title[^>]*>(.*?)</title>",
     re.IGNORECASE | re.DOTALL,
 )
+PRICE_CONTAINER_PATTERNS = (
+    re.compile(
+        r'id=["\'](?:priceblock_ourprice|priceblock_dealprice|priceblock_saleprice|corePriceDisplay_desktop_feature_div)["\'][^>]*>(.*?)</(?:span|div)>',
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(
+        r'class=["\'][^"\']*a-price-whole[^"\']*["\'][^>]*>(.*?)</span>',
+        re.IGNORECASE | re.DOTALL,
+    ),
+)
+RUPEE_PRICE_PATTERN = re.compile(r"(?:₹|&#8377;|&\#x20b9;)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
 
 
 def detect_availability(page_html):
@@ -86,6 +97,22 @@ def extract_product_title(page_html):
     return title[:180] or None
 
 
+def extract_price(page_html):
+    for container_pattern in PRICE_CONTAINER_PATTERNS:
+        for match in container_pattern.finditer(page_html):
+            text = html.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))
+            text = re.sub(r"\s+", " ", text).strip()
+            price_match = RUPEE_PRICE_PATTERN.search(text)
+            if price_match:
+                return f"₹{price_match.group(1)}"
+
+            whole_number = re.sub(r"[^0-9,]", "", text)
+            if whole_number:
+                return f"₹{whole_number}"
+
+    return None
+
+
 def _proxies():
     if PROXY_URL:
         return {"http": PROXY_URL, "https": PROXY_URL}
@@ -105,6 +132,7 @@ def fetch_product_result(product_url, session=None):
     return {
         "available": detect_availability(response.text),
         "title": extract_product_title(response.text),
+        "price": extract_price(response.text),
     }
 
 
@@ -140,7 +168,7 @@ def check_urls(product_urls):
                 result = fetch_product_result(product_url, session=session)
             except requests.RequestException as error:
                 print(f"HTTP check failed for {product_url}: {error}", flush=True)
-                result = {"available": None, "title": None}
+                result = {"available": None, "title": None, "price": None}
 
             available = result["available"]
             if available is True:
