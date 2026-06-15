@@ -146,10 +146,11 @@ def fetch_product_result(product_url, session=None):
         proxies=_proxies(),
     )
     response.raise_for_status()
+    available = detect_availability(response.text)
     return {
-        "available": detect_availability(response.text),
+        "available": available,
         "title": extract_product_title(response.text),
-        "price": extract_price(response.text),
+        "price": extract_price(response.text) if available is True else None,
     }
 
 
