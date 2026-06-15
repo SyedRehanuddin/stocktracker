@@ -885,6 +885,10 @@ def scraper_health():
 
 @app.get("/")
 def health():
+    return public_health_data()
+
+
+def public_health_data():
     approved = list_approved_users()
     pending = list_pending_users()
     total_products = sum(len(get_user_products(chat_id)) for chat_id in approved)
@@ -901,6 +905,173 @@ def health():
         "interval_floor_minutes": MIN_CHECK_INTERVAL_MINUTES,
         "check_running": state["check_running"],
     }
+
+
+@app.get("/dashboard")
+def dashboard():
+    data = public_health_data()
+    scraper_label = "Healthy" if data["scraper_healthy"] else "Needs Check"
+    running_label = "Running" if data["status"] == "running" else data["status"].title()
+    check_label = "Yes" if data["check_running"] else "No"
+    refreshed = now_text()
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Tracker Dashboard</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #687385;
+      --line: #dfe5ee;
+      --good: #137a3f;
+      --warn: #a15c00;
+      --accent: #2157d6;
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #101722;
+        --panel: #172131;
+        --text: #eef3fb;
+        --muted: #9ba8ba;
+        --line: #2d3a4d;
+        --good: #44c07a;
+        --warn: #ffb14a;
+        --accent: #83a5ff;
+      }}
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+    }}
+    main {{
+      width: min(960px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 36px 0;
+    }}
+    header {{
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.15;
+    }}
+    .subtle {{
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }}
+    .badge {{
+      display: inline-flex;
+      align-items: center;
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--good);
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+    .badge.warn {{ color: var(--warn); }}
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }}
+    .metric {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 104px;
+    }}
+    .metric span {{
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 10px;
+    }}
+    .metric strong {{
+      display: block;
+      font-size: 24px;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }}
+    .details {{
+      margin-top: 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }}
+    .row {{
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      padding: 14px 16px;
+      border-top: 1px solid var(--line);
+    }}
+    .row:first-child {{ border-top: 0; }}
+    .row span {{ color: var(--muted); }}
+    .row strong {{ text-align: right; }}
+    a {{ color: var(--accent); }}
+    @media (max-width: 760px) {{
+      header {{ align-items: flex-start; flex-direction: column; }}
+      .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    }}
+    @media (max-width: 460px) {{
+      main {{ width: min(100% - 20px, 960px); padding: 22px 0; }}
+      .grid {{ grid-template-columns: 1fr; }}
+      .row {{ grid-template-columns: 1fr; gap: 6px; }}
+      .row strong {{ text-align: left; }}
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Stock Tracker Dashboard</h1>
+        <p class="subtle">Public service health. Product and user details are hidden.</p>
+      </div>
+      <div class="badge {'warn' if not data['scraper_healthy'] else ''}">{scraper_label}</div>
+    </header>
+
+    <section class="grid" aria-label="Service metrics">
+      <div class="metric"><span>Service</span><strong>{running_label}</strong></div>
+      <div class="metric"><span>Approved Users</span><strong>{data['approved_user_count']}</strong></div>
+      <div class="metric"><span>Total Products</span><strong>{data['total_product_count']}</strong></div>
+      <div class="metric"><span>Check Running</span><strong>{check_label}</strong></div>
+    </section>
+
+    <section class="details" aria-label="Configuration">
+      <div class="row"><span>Pending Requests</span><strong>{data['pending_user_count']}</strong></div>
+      <div class="row"><span>Minimum Interval</span><strong>{data['interval_floor_minutes']} minutes</strong></div>
+      <div class="row"><span>Max Friends</span><strong>{data['max_users']}</strong></div>
+      <div class="row"><span>Max Products Per User</span><strong>{data['max_products_per_user']}</strong></div>
+      <div class="row"><span>Max Unique Checks Per Cycle</span><strong>{data['max_unique_checks_per_cycle']}</strong></div>
+      <div class="row"><span>Admin Product Cap Exempt</span><strong>{'Yes' if data['admin_product_cap_exempt'] else 'No'}</strong></div>
+      <div class="row"><span>Last Refreshed</span><strong>{refreshed}</strong></div>
+    </section>
+  </main>
+</body>
+</html>"""
 
 
 if __name__ == "__main__":
