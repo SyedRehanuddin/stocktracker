@@ -20,6 +20,7 @@ from tracker import check_urls
 
 app = Flask(__name__)
 check_lock = threading.Lock()
+schedule_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -441,8 +442,9 @@ def scheduled_check():
 
 
 def reschedule_checks():
-    schedule.clear("stock-check")
-    schedule.every(state["interval"]).minutes.do(scheduled_check).tag("stock-check")
+    with schedule_lock:
+        schedule.clear("stock-check")
+        schedule.every(state["interval"]).minutes.do(scheduled_check).tag("stock-check")
     print(f"Scheduled checks every {state['interval']} mins", flush=True)
 
 
@@ -455,7 +457,8 @@ def run_scheduler():
     )
 
     while True:
-        schedule.run_pending()
+        with schedule_lock:
+            schedule.run_pending()
         time.sleep(30)
 
 
