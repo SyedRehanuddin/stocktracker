@@ -46,6 +46,11 @@ def make_product(url, name=None, index=1):
     }
 
 
+def is_env_amazon_url(url):
+    cleaned = clean_url(url).lower()
+    return cleaned.startswith(("http://", "https://")) and "amazon." in cleaned
+
+
 state = {
     "paused": False,
     "notify_only_on_change": False,
@@ -59,14 +64,22 @@ state = {
 
 
 def default_product_urls():
-    urls = [PRODUCT_URL]
-    urls.extend(
-        [
-            clean_url(url)
-            for url in ADDITIONAL_PRODUCT_URLS.replace("\n", ",").split(",")
-            if clean_url(url)
-        ]
-    )
+    candidates = [PRODUCT_URL]
+    candidates.extend(ADDITIONAL_PRODUCT_URLS.replace("\n", ",").split(","))
+
+    urls = []
+    for url in candidates:
+        cleaned = clean_url(url)
+        if not cleaned:
+            continue
+        if is_env_amazon_url(cleaned):
+            urls.append(cleaned)
+        else:
+            print(
+                f"WARNING: Skipping non-Amazon URL from environment: {cleaned}",
+                flush=True,
+            )
+
     return list(dict.fromkeys(urls))
 
 
