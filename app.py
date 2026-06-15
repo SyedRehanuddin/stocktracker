@@ -23,6 +23,7 @@ check_lock = threading.Lock()
 schedule_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+MAX_PRODUCTS = 20
 
 
 def clean_url(url):
@@ -209,6 +210,11 @@ def add_product(url):
         return False, "Please send a valid Amazon product link."
     if product_exists(url):
         return False, "That product is already being tracked."
+    if len(state["products"]) >= MAX_PRODUCTS:
+        return (
+            False,
+            f"Maximum {MAX_PRODUCTS} products allowed. Remove one before adding another.",
+        )
 
     state["products"].append(make_product(url, index=len(state["products"]) + 1))
     save_products(state["products"])
@@ -651,6 +657,7 @@ def health():
         "status": "running",
         "scraper_healthy": scraper_health(),
         "product_count": len(state["products"]),
+        "max_products": MAX_PRODUCTS,
         "products": [
             {
                 "name": product["name"],
