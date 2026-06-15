@@ -361,8 +361,7 @@ def apply_product_result(chat_id, products, product, result, force_notify=False)
     previous_status = product["last_status"]
     if title:
         product["name"] = title
-    if price:
-        product["last_price"] = price
+    product["last_price"] = price
     product["last_status"] = available
     product["last_checked"] = now_text()
     if available is True or available is False:
