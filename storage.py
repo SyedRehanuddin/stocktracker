@@ -14,6 +14,7 @@ LOCAL_SETTINGS_STORE = Path("settings.json")
 
 # Show the "no Redis" warning only once so logs are not spammed.
 _redis_warning_shown = False
+_redis_client = None
 
 
 def _warn_no_redis(reason):
@@ -31,6 +32,10 @@ def _warn_no_redis(reason):
 
 
 def get_redis_client():
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+
     redis_url = os.getenv("REDIS_URL")
     if not redis_url:
         _warn_no_redis("REDIS_URL is not set")
@@ -44,7 +49,18 @@ def get_redis_client():
             "(must start with redis://, rediss://, or unix://)"
         )
         return None
-    return redis.from_url(redis_url, decode_responses=True)
+    _redis_client = redis.from_url(redis_url, decode_responses=True)
+    return _redis_client
+
+
+def reset_redis_client():
+    global _redis_client
+    if _redis_client is not None:
+        try:
+            _redis_client.close()
+        except Exception:
+            pass
+    _redis_client = None
 
 
 def load_products():
@@ -55,6 +71,7 @@ def load_products():
             return json.loads(raw) if raw else []
         except Exception as e:
             print(f"Redis load failed: {e}", flush=True)
+            reset_redis_client()
 
     if LOCAL_STORE.exists():
         return json.loads(LOCAL_STORE.read_text(encoding="utf-8"))
@@ -71,6 +88,7 @@ def save_products(products):
             return
         except Exception as e:
             print(f"Redis save failed: {e}", flush=True)
+            reset_redis_client()
 
     LOCAL_STORE.write_text(payload, encoding="utf-8")
 
@@ -83,6 +101,7 @@ def load_settings():
             return json.loads(raw) if raw else {}
         except Exception as e:
             print(f"Redis settings load failed: {e}", flush=True)
+            reset_redis_client()
 
     if LOCAL_SETTINGS_STORE.exists():
         return json.loads(LOCAL_SETTINGS_STORE.read_text(encoding="utf-8"))
@@ -99,5 +118,6 @@ def save_settings(settings):
             return
         except Exception as e:
             print(f"Redis settings save failed: {e}", flush=True)
+            reset_redis_client()
 
     LOCAL_SETTINGS_STORE.write_text(payload, encoding="utf-8")
