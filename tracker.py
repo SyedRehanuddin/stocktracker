@@ -53,17 +53,21 @@ PAGE_TITLE_PATTERN = re.compile(
     r"<title[^>]*>(.*?)</title>",
     re.IGNORECASE | re.DOTALL,
 )
-PRICE_CONTAINER_PATTERNS = (
+MAIN_PRICE_CONTAINER_PATTERNS = (
     re.compile(
-        r'id=["\'](?:priceblock_ourprice|priceblock_dealprice|priceblock_saleprice|corePriceDisplay_desktop_feature_div)["\'][^>]*>(.*?)</(?:span|div)>',
-        re.IGNORECASE | re.DOTALL,
-    ),
-    re.compile(
-        r'class=["\'][^"\']*a-price-whole[^"\']*["\'][^>]*>(.*?)</span>',
+        r'id=["\'](?:corePriceDisplay_desktop_feature_div|apex_desktop|tp_price_block_total_price_ww|priceblock_ourprice|priceblock_dealprice|priceblock_saleprice)["\'][^>]*>(.*?)</(?:div|span)>',
         re.IGNORECASE | re.DOTALL,
     ),
 )
 RUPEE_PRICE_PATTERN = re.compile(r"(?:₹|&#8377;|&\#x20b9;)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
+PRICE_WHOLE_PATTERN = re.compile(
+    r'class=["\'][^"\']*a-price-whole[^"\']*["\'][^>]*>(.*?)</span>',
+    re.IGNORECASE | re.DOTALL,
+)
+PRICE_FRACTION_PATTERN = re.compile(
+    r'class=["\'][^"\']*a-price-fraction[^"\']*["\'][^>]*>(.*?)</span>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def detect_availability(page_html):
@@ -98,17 +102,30 @@ def extract_product_title(page_html):
 
 
 def extract_price(page_html):
-    for container_pattern in PRICE_CONTAINER_PATTERNS:
+    for container_pattern in MAIN_PRICE_CONTAINER_PATTERNS:
         for match in container_pattern.finditer(page_html):
-            text = html.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))
+            container_html = match.group(1)
+            text = html.unescape(re.sub(r"<[^>]+>", " ", container_html))
             text = re.sub(r"\s+", " ", text).strip()
             price_match = RUPEE_PRICE_PATTERN.search(text)
             if price_match:
                 return f"₹{price_match.group(1)}"
 
-            whole_number = re.sub(r"[^0-9,]", "", text)
-            if whole_number:
-                return f"₹{whole_number}"
+            whole_match = PRICE_WHOLE_PATTERN.search(container_html)
+            if whole_match:
+                whole = re.sub(r"[^0-9,]", "", html.unescape(whole_match.group(1)))
+                fraction_match = PRICE_FRACTION_PATTERN.search(container_html)
+                fraction = ""
+                if fraction_match:
+                    fraction = re.sub(
+                        r"[^0-9]",
+                        "",
+                        html.unescape(fraction_match.group(1)),
+                    )
+                if whole and fraction:
+                    return f"₹{whole}.{fraction[:2]}"
+                if whole:
+                    return f"₹{whole}"
 
     return None
 
