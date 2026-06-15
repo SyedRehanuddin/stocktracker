@@ -1,7 +1,7 @@
 import time
 
 import requests
-from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PRODUCT_URL
+from config import ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN
 
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
@@ -34,10 +34,9 @@ def build_buttons(
             [{"text": "Cancel Check", "callback_data": "cancel_check"}],
             [{"text": pause_text, "callback_data": pause_action}],
             [
-                {"text": "5m", "callback_data": "interval:5"},
-                {"text": "10m", "callback_data": "interval:10"},
                 {"text": "15m", "callback_data": "interval:15"},
                 {"text": "30m", "callback_data": "interval:30"},
+                {"text": "60m", "callback_data": "interval:60"},
             ],
             [{"text": notify_text, "callback_data": "toggle_notify"}],
         ]
@@ -59,22 +58,27 @@ def telegram_request(method, payload, timeout=20):
 
 def send_telegram_message(
     message,
+    chat_id=None,
     paused=False,
     notify_only_on_change=False,
     product_url=None,
     extra_rows=None,
+    reply_markup=None,
 ):
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True,
-        "reply_markup": build_buttons(
+    if reply_markup is None:
+        reply_markup = build_buttons(
             paused=paused,
             notify_only_on_change=notify_only_on_change,
             product_url=product_url,
             extra_rows=extra_rows,
-        ),
+        )
+
+    payload = {
+        "chat_id": chat_id or ADMIN_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
+        "reply_markup": reply_markup,
     }
 
     # Retry a few times so a single network blip or transient Telegram error
@@ -112,7 +116,13 @@ def send_alert(**controls):
     send_status_alert(True, **controls)
 
 
-def send_status_alert(available, product_name="Product", product_url=None, **controls):
+def send_status_alert(
+    available,
+    product_name="Product",
+    product_url=None,
+    chat_id=None,
+    **controls,
+):
     if available is True:
         msg = (
             f"*{product_name} is available!*\n\n"
@@ -132,7 +142,7 @@ def send_status_alert(available, product_name="Product", product_url=None, **con
             "I will retry on the next check."
         )
 
-    send_telegram_message(msg, product_url=product_url, **controls)
+    send_telegram_message(msg, chat_id=chat_id, product_url=product_url, **controls)
 
 
 def send_control_message(message, **controls):
@@ -181,6 +191,8 @@ def set_bot_commands():
                 {"command": "cancel", "description": "Cancel stuck check state"},
                 {"command": "pause", "description": "Pause scheduled checks"},
                 {"command": "resume", "description": "Resume scheduled checks"},
+                {"command": "users", "description": "Admin: list users"},
+                {"command": "removeuser", "description": "Admin: remove user access"},
                 {"command": "help", "description": "Show commands and buttons"},
             ]
         },

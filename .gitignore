@@ -7,3 +7,4 @@ venv/
 *.log
 products.json
 settings.json
+multi_user_store.json

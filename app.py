@@ -7,15 +7,40 @@ from datetime import datetime, timedelta, timezone
 import schedule
 from flask import Flask
 
-from config import ADDITIONAL_PRODUCT_URLS, PRODUCT_URL, TELEGRAM_CHAT_ID, validate_config
+from config import (
+    ADMIN_CHAT_ID,
+    MAX_PRODUCTS_PER_USER,
+    MAX_UNIQUE_CHECKS_PER_CYCLE,
+    MAX_USERS,
+    MIN_CHECK_INTERVAL_MINUTES,
+    validate_config,
+)
 from notifier import (
     answer_callback_query,
     get_updates,
     send_control_message,
     send_status_alert,
+    send_telegram_message,
     set_bot_commands,
 )
-from storage import load_products, load_settings, save_products, save_settings
+from storage import (
+    add_approved_user,
+    add_pending_user,
+    add_rejected_user,
+    is_approved_user,
+    is_pending_user,
+    is_rejected_user,
+    list_approved_users,
+    list_pending_users,
+    list_rejected_users,
+    load_user_products,
+    load_user_profile,
+    load_user_settings,
+    remove_approved_user,
+    save_user_products,
+    save_user_profile,
+    save_user_settings,
+)
 from tracker import check_urls
 
 app = Flask(__name__)
@@ -23,7 +48,13 @@ check_lock = threading.Lock()
 schedule_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
-MAX_PRODUCTS = 20
+
+state = {
+    "check_running": False,
+    "check_started_at": None,
+    "telegram_offset": None,
+    "awaiting_product_url": set(),
+}
 
 
 def clean_url(url):
@@ -34,6 +65,54 @@ def clean_product_name(name):
     if not name:
         return None
     return re.sub(r"[*_`\[\]]", "", name).strip()[:180] or None
+
+
+def now_ist():
+    return datetime.now(IST)
+
+
+def now_text():
+    return now_ist().strftime("%d %b %Y, %I:%M %p IST")
+
+
+def now_epoch():
+    return int(time.time())
+
+
+def is_admin(chat_id):
+    return str(chat_id) == str(ADMIN_CHAT_ID)
+
+
+def default_settings():
+    return {
+        "paused": False,
+        "notify_only_on_change": False,
+        "interval": MIN_CHECK_INTERVAL_MINUTES,
+        "last_scheduled_check_epoch": 0,
+    }
+
+
+def normalize_settings(settings):
+    normalized = default_settings()
+    normalized.update(settings or {})
+    normalized["interval"] = max(
+        int(normalized.get("interval", MIN_CHECK_INTERVAL_MINUTES)),
+        MIN_CHECK_INTERVAL_MINUTES,
+    )
+    normalized["paused"] = bool(normalized.get("paused", False))
+    normalized["notify_only_on_change"] = bool(
+        normalized.get("notify_only_on_change", False)
+    )
+    normalized["last_scheduled_check_epoch"] = int(
+        normalized.get("last_scheduled_check_epoch", 0) or 0
+    )
+    return normalized
+
+
+def get_user_settings(chat_id):
+    settings = normalize_settings(load_user_settings(chat_id))
+    save_user_settings(chat_id, settings)
+    return settings
 
 
 def make_product(url, name=None, index=1):
@@ -47,44 +126,7 @@ def make_product(url, name=None, index=1):
     }
 
 
-def is_env_amazon_url(url):
-    cleaned = clean_url(url).lower()
-    return cleaned.startswith(("http://", "https://")) and "amazon." in cleaned
-
-
-state = {
-    "paused": False,
-    "notify_only_on_change": False,
-    "check_running": False,
-    "check_started_at": None,
-    "interval": int(os.getenv("CHECK_INTERVAL_MINUTES", "15")),
-    "telegram_offset": None,
-    "awaiting_product_url": False,
-    "products": [],
-}
-
-
-def default_product_urls():
-    candidates = [PRODUCT_URL]
-    candidates.extend(ADDITIONAL_PRODUCT_URLS.replace("\n", ",").split(","))
-
-    urls = []
-    for url in candidates:
-        cleaned = clean_url(url)
-        if not cleaned:
-            continue
-        if is_env_amazon_url(cleaned):
-            urls.append(cleaned)
-        else:
-            print(
-                f"WARNING: Skipping non-Amazon URL from environment: {cleaned}",
-                flush=True,
-            )
-
-    return list(dict.fromkeys(urls))
-
-
-def normalize_loaded_product(product, index):
+def normalize_product(product, index):
     return {
         "url": clean_url(product["url"]),
         "name": clean_product_name(product.get("name")) or f"Product {index}",
@@ -95,65 +137,109 @@ def normalize_loaded_product(product, index):
     }
 
 
-def initialize_products():
-    loaded = load_products()
-    if loaded:
-        # Products already exist in storage. Trust them as the source of truth.
-        # Do NOT re-add the env-seeded URLs here, otherwise any product removed
-        # with /remove silently comes back on the next restart/redeploy.
-        state["products"] = [
-            normalize_loaded_product(product, index)
-            for index, product in enumerate(loaded, start=1)
-        ]
-        save_products(state["products"])
-        return
-
-    # First run only (storage empty): seed from the env URL list.
-    state["products"] = [
-        make_product(url, f"Product {index}", index=index)
-        for index, url in enumerate(default_product_urls(), start=1)
+def get_user_products(chat_id):
+    products = [
+        normalize_product(product, index)
+        for index, product in enumerate(load_user_products(chat_id), start=1)
     ]
-    save_products(state["products"])
+    save_user_products(chat_id, products)
+    return products
 
 
-def initialize_settings():
-    settings = load_settings()
-    state["paused"] = bool(settings.get("paused", state["paused"]))
-    state["notify_only_on_change"] = bool(
-        settings.get("notify_only_on_change", state["notify_only_on_change"])
+def is_amazon_url(url):
+    url = clean_url(url).lower()
+    return url.startswith(("http://", "https://")) and "amazon." in url
+
+
+def status_label(available):
+    if available is True:
+        return "available"
+    if available is False:
+        return "unavailable"
+    if available is None:
+        return "unclear"
+    return "not checked yet"
+
+
+def product_status_label(product):
+    if not product["last_checked"]:
+        return "not checked yet"
+    return status_label(product["last_status"])
+
+
+def product_status_block(index, product):
+    checked = product["last_checked"] or "never"
+    return (
+        f"*Product {index}*\n"
+        f"Name: {product['name']}\n"
+        f"Status: `{product_status_label(product)}`\n"
+        f"Last checked: `{checked}`"
     )
-    state["interval"] = int(settings.get("interval", state["interval"]))
 
 
-def persist_settings():
-    save_settings(
-        {
-            "paused": state["paused"],
-            "notify_only_on_change": state["notify_only_on_change"],
-            "interval": state["interval"],
-        }
-    )
-
-
-def reload_products_from_storage():
-    loaded = load_products()
-    if not loaded:
-        return
-    state["products"] = [
-        normalize_loaded_product(product, index)
-        for index, product in enumerate(loaded, start=1)
-    ]
-
-
-def controls():
+def controls(settings):
     return {
-        "paused": state["paused"],
-        "notify_only_on_change": state["notify_only_on_change"],
+        "paused": settings["paused"],
+        "notify_only_on_change": settings["notify_only_on_change"],
     }
 
 
-def now_ist():
-    return datetime.now(IST)
+def product_exists(products, url):
+    cleaned = clean_url(url)
+    return any(product["url"] == cleaned for product in products)
+
+
+def max_products_for(chat_id):
+    return None if is_admin(chat_id) else MAX_PRODUCTS_PER_USER
+
+
+def add_product(chat_id, url):
+    products = get_user_products(chat_id)
+    limit = max_products_for(chat_id)
+    if not is_amazon_url(url):
+        return False, "Please send a valid Amazon product link."
+    if product_exists(products, url):
+        return False, "That product is already being tracked."
+    if limit is not None and len(products) >= limit:
+        return False, f"Maximum {limit} products allowed. Remove one before adding another."
+
+    products.append(make_product(url, index=len(products) + 1))
+    save_user_products(chat_id, products)
+    return True, f"Added Product {len(products)}."
+
+
+def remove_product(chat_id, number_text):
+    products = get_user_products(chat_id)
+    try:
+        number = int(number_text)
+    except ValueError:
+        return False, "Use `/remove 2` with the product number from `/list`."
+
+    if number < 1 or number > len(products):
+        return False, "That product number is not in the list."
+
+    removed = products.pop(number - 1)
+    save_user_products(chat_id, products)
+    return True, f"Removed {removed['name']}."
+
+
+def product_list_message(chat_id):
+    products = get_user_products(chat_id)
+    if not products:
+        return "*Tracked products*\n\nNo products yet. Use `/add` to add one."
+
+    lines = ["*Tracked products*"]
+    for index, product in enumerate(products, start=1):
+        lines.append(f"\n{product_status_block(index, product)}")
+        lines.append(f"[Buy on Amazon]({product['url']})")
+    return "\n".join(lines)
+
+
+def product_summary_lines(chat_id):
+    return [
+        product_status_block(index, product)
+        for index, product in enumerate(get_user_products(chat_id), start=1)
+    ]
 
 
 def check_age_seconds():
@@ -185,120 +271,37 @@ def finish_check():
         check_lock.release()
 
 
-def status_label(available):
-    if available is True:
-        return "available"
-    if available is False:
-        return "unavailable"
-    if available is None:
-        return "unclear"
-    return "not checked yet"
+def clear_check_state_only():
+    state["check_running"] = False
+    state["check_started_at"] = None
 
 
-def is_amazon_url(url):
-    url = clean_url(url).lower()
-    return url.startswith(("http://", "https://")) and "amazon." in url
-
-
-def product_exists(url):
-    cleaned = clean_url(url)
-    return any(product["url"] == cleaned for product in state["products"])
-
-
-def add_product(url):
-    if not is_amazon_url(url):
-        return False, "Please send a valid Amazon product link."
-    if product_exists(url):
-        return False, "That product is already being tracked."
-    if len(state["products"]) >= MAX_PRODUCTS:
-        return (
-            False,
-            f"Maximum {MAX_PRODUCTS} products allowed. Remove one before adding another.",
-        )
-
-    state["products"].append(make_product(url, index=len(state["products"]) + 1))
-    save_products(state["products"])
-    return True, f"Added Product {len(state['products'])}."
-
-
-def remove_product(number_text):
-    try:
-        number = int(number_text)
-    except ValueError:
-        return False, "Use `/remove 2` with the product number from `/list`."
-
-    if number < 1 or number > len(state["products"]):
-        return False, "That product number is not in the list."
-
-    if len(state["products"]) == 1:
-        return False, "Keep at least one product in the tracker."
-
-    removed = state["products"].pop(number - 1)
-    save_products(state["products"])
-    return True, f"Removed {removed['name']}."
-
-
-def product_list_message():
-    lines = ["*Tracked products*"]
-    for index, product in enumerate(state["products"], start=1):
-        lines.append(f"\n{product_status_block(index, product)}")
-        lines.append(f"[Buy on Amazon]({product['url']})")
-    return "\n".join(lines)
-
-
-def product_summary_lines():
-    return [
-        product_status_block(index, product)
-        for index, product in enumerate(state["products"], start=1)
-    ]
-
-
-def product_status_block(index, product):
-    checked = product["last_checked"] or "never"
-    return (
-        f"*Product {index}*\n"
-        f"Name: {product['name']}\n"
-        f"Status: `{product_status_label(product)}`\n"
-        f"Last checked: `{checked}`"
-    )
-
-
-def product_number(product):
-    for index, tracked_product in enumerate(state["products"], start=1):
-        if tracked_product["url"] == product["url"]:
-            return index
-    return None
-
-
-def product_status_label(product):
-    if not product["last_checked"]:
-        return "not checked yet"
-    return status_label(product["last_status"])
-
-
-def control_status_message():
-    mode = "changes only" if state["notify_only_on_change"] else "every check"
-    paused = "yes" if state["paused"] else "no"
+def control_status_message(chat_id):
+    settings = get_user_settings(chat_id)
+    mode = "changes only" if settings["notify_only_on_change"] else "every check"
+    paused = "yes" if settings["paused"] else "no"
     checking = "yes" if state["check_running"] else "no"
     age = int(check_age_seconds())
+    products = product_summary_lines(chat_id)
+    product_text = "\n\n".join(products) if products else "No products yet."
 
     return (
         "*Tracker status*\n\n"
-        f"Products: `{len(state['products'])}`\n"
+        f"Products: `{len(get_user_products(chat_id))}`\n"
         f"Paused: `{paused}`\n"
         f"Check running: `{checking}`\n"
         f"Check age: `{age} seconds`\n"
-        f"Interval: `{state['interval']} minutes`\n"
+        f"Interval: `{settings['interval']} minutes`\n"
         f"Notifications: `{mode}`\n\n"
         "*Products*\n"
-        + "\n\n".join(product_summary_lines())
+        + product_text
     )
 
 
-def product_check_rows():
+def product_check_rows(chat_id):
     rows = []
     row = []
-    for index, product in enumerate(state["products"], start=1):
+    for index, _product in enumerate(get_user_products(chat_id), start=1):
         row.append({"text": f"Check {index}", "callback_data": f"check_product:{index}"})
         if len(row) == 2:
             rows.append(row)
@@ -308,89 +311,40 @@ def product_check_rows():
     return rows
 
 
-def check_picker_message():
-    lines = ["*Choose product to check*"]
-    for index, product in enumerate(state["products"], start=1):
-        lines.append(f"\n{product_status_block(index, product)}")
-    return "\n".join(lines)
+def check_picker_message(chat_id):
+    products = product_summary_lines(chat_id)
+    if not products:
+        return "*Choose product to check*\n\nNo products yet. Use `/add` to add one."
+    return "*Choose product to check*\n\n" + "\n\n".join(products)
 
 
-def send_check_picker():
-    reload_products_from_storage()
+def send_check_picker(chat_id):
+    settings = get_user_settings(chat_id)
     send_control_message(
-        check_picker_message(),
-        extra_rows=product_check_rows(),
-        **controls(),
+        check_picker_message(chat_id),
+        chat_id=chat_id,
+        extra_rows=product_check_rows(chat_id),
+        **controls(settings),
     )
 
 
-def single_check_summary_message(product):
-    index = product_number(product) or "?"
-    return (
-        "*Check finished*\n\n"
-        f"{product_status_block(index, product)}\n"
-        f"[Buy on Amazon]({product['url']})"
-    )
+def product_number(products, product):
+    for index, tracked_product in enumerate(products, start=1):
+        if tracked_product["url"] == product["url"]:
+            return index
+    return None
 
 
-def run_single_product_check(product_index, force_notify=False, reload_first=False):
-    if reload_first:
-        reload_products_from_storage()
-    if product_index < 0 or product_index >= len(state["products"]):
-        return None
-
-    product = state["products"][product_index]
-    print(f"Checking {product['name']}: {product['url']}", flush=True)
-    results = check_urls([product["url"]])
-    result = results[0] if results else {"available": None, "title": None}
-    apply_product_result(product, result, force_notify=force_notify)
-    save_products(state["products"])
-    return product
-
-
-def run_single_product_check_async(product_index):
-    if not begin_check():
-        send_control_message("*A check is already running.*", **controls())
-        return
-
-    reload_products_from_storage()
-    if product_index < 0 or product_index >= len(state["products"]):
-        finish_check()
-        send_control_message("*That product number is not in the list.*", **controls())
-        return
-
-    product = state["products"][product_index]
-    send_control_message(f"*Check started:* {product['name']}", **controls())
-
-    def worker():
-        try:
-            checked_product = run_single_product_check(
-                product_index,
-                force_notify=True,
-                reload_first=True,
-            )
-            if checked_product:
-                send_control_message(single_check_summary_message(checked_product), **controls())
-        except Exception as e:
-            print(f"Manual check failed: {e}", flush=True)
-            send_control_message(f"*Check failed:* `{e}`", **controls())
-        finally:
-            finish_check()
-
-    threading.Thread(target=worker, daemon=True).start()
-
-
-def should_send_status(product, available, previous_status):
+def should_send_status(settings, product, available, previous_status):
     if available is True:
-        return not product["notified_in_stock"] or not state["notify_only_on_change"]
-
-    if state["notify_only_on_change"]:
+        return not product["notified_in_stock"] or not settings["notify_only_on_change"]
+    if settings["notify_only_on_change"]:
         return previous_status != available
-
     return True
 
 
-def apply_product_result(product, result, force_notify=False):
+def apply_product_result(chat_id, products, product, result, force_notify=False):
+    settings = get_user_settings(chat_id)
     if isinstance(result, dict):
         available = result.get("available")
         title = clean_product_name(result.get("title"))
@@ -402,17 +356,13 @@ def apply_product_result(product, result, force_notify=False):
     if title:
         product["name"] = title
     product["last_status"] = available
-    product["last_checked"] = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
-
-    # Record a successful read only when Amazon gave a clear answer. A None
-    # result (bot-check / HTTP error) is NOT a success, so the health check
-    # can detect a scraper that has gone blind.
+    product["last_checked"] = now_text()
     if available is True or available is False:
-        product["last_success_epoch"] = int(time.time())
+        product["last_success_epoch"] = now_epoch()
 
-    send_now = force_notify or should_send_status(product, available, previous_status)
+    send_now = force_notify or should_send_status(settings, product, available, previous_status)
     if send_now:
-        index = product_number(product)
+        index = product_number(products, product)
         notification_name = (
             f"Product {index} - {product['name']}" if index else product["name"]
         )
@@ -420,42 +370,130 @@ def apply_product_result(product, result, force_notify=False):
             available,
             product_name=notification_name,
             product_url=product["url"],
-            **controls(),
+            chat_id=chat_id,
+            **controls(settings),
         )
 
     if available is True:
         product["notified_in_stock"] = True
     elif available is False:
         product["notified_in_stock"] = False
-
     return available
 
 
-def run_next_scheduled_check():
-    reload_products_from_storage()
-    if not state["products"]:
-        print("No products to check", flush=True)
+def run_single_product_check(chat_id, product_index, force_notify=False):
+    products = get_user_products(chat_id)
+    if product_index < 0 or product_index >= len(products):
         return None
 
-    products = list(state["products"])
-    print(f"Scheduled check for all {len(products)} products", flush=True)
-    results = check_urls([product["url"] for product in products])
-    for product, result in zip(products, results):
-        apply_product_result(product, result)
-    save_products(state["products"])
-    return results
+    product = products[product_index]
+    print(f"Checking {chat_id} {product['name']}: {product['url']}", flush=True)
+    results = check_urls([product["url"]])
+    result = results[0] if results else {"available": None, "title": None}
+    apply_product_result(chat_id, products, product, result, force_notify=force_notify)
+    save_user_products(chat_id, products)
+    return product
+
+
+def single_check_summary_message(chat_id, product):
+    products = get_user_products(chat_id)
+    index = product_number(products, product) or "?"
+    return (
+        "*Check finished*\n\n"
+        f"{product_status_block(index, product)}\n"
+        f"[Buy on Amazon]({product['url']})"
+    )
+
+
+def run_single_product_check_async(chat_id, product_index):
+    settings = get_user_settings(chat_id)
+    if not begin_check():
+        send_control_message("*A check is already running.*", chat_id=chat_id, **controls(settings))
+        return
+
+    products = get_user_products(chat_id)
+    if product_index < 0 or product_index >= len(products):
+        finish_check()
+        send_control_message("*That product number is not in the list.*", chat_id=chat_id, **controls(settings))
+        return
+
+    product = products[product_index]
+    send_control_message(f"*Check started:* {product['name']}", chat_id=chat_id, **controls(settings))
+
+    def worker():
+        try:
+            checked_product = run_single_product_check(
+                chat_id,
+                product_index,
+                force_notify=True,
+            )
+            if checked_product:
+                send_control_message(
+                    single_check_summary_message(chat_id, checked_product),
+                    chat_id=chat_id,
+                    **controls(get_user_settings(chat_id)),
+                )
+        except Exception as e:
+            print(f"Manual check failed: {e}", flush=True)
+            send_control_message(f"*Check failed:* `{e}`", chat_id=chat_id, **controls(settings))
+        finally:
+            finish_check()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def settings_due(settings):
+    last = int(settings.get("last_scheduled_check_epoch", 0) or 0)
+    return now_epoch() - last >= settings["interval"] * 60
 
 
 def scheduled_check():
-    if state["paused"]:
-        print("Tracker is paused; skipping scheduled check", flush=True)
-        return
     if not begin_check():
         print("Another check is running; skipping scheduled check", flush=True)
         return
 
     try:
-        run_next_scheduled_check()
+        due = []
+        url_map = {}
+        for chat_id in list_approved_users():
+            settings = get_user_settings(chat_id)
+            if settings["paused"] or not settings_due(settings):
+                continue
+            products = get_user_products(chat_id)
+            due.append((chat_id, settings, products))
+            for index, product in enumerate(products):
+                if len(url_map) >= MAX_UNIQUE_CHECKS_PER_CYCLE and product["url"] not in url_map:
+                    continue
+                url_map.setdefault(product["url"], []).append((chat_id, index))
+
+        if not due:
+            return
+        if not url_map:
+            for chat_id, settings, _products in due:
+                settings["last_scheduled_check_epoch"] = now_epoch()
+                save_user_settings(chat_id, settings)
+            return
+
+        urls = list(url_map)
+        print(f"Scheduled check for {len(urls)} unique URLs", flush=True)
+        results = dict(zip(urls, check_urls(urls)))
+        products_by_user = {chat_id: products for chat_id, _settings, products in due}
+
+        touched_users = set()
+        for url, targets in url_map.items():
+            result = results.get(url, {"available": None, "title": None})
+            for chat_id, index in targets:
+                products = products_by_user[chat_id]
+                if index >= len(products):
+                    continue
+                apply_product_result(chat_id, products, products[index], result)
+                touched_users.add(chat_id)
+
+        for chat_id, settings, products in due:
+            if chat_id in touched_users:
+                save_user_products(chat_id, products)
+            settings["last_scheduled_check_epoch"] = now_epoch()
+            save_user_settings(chat_id, settings)
     finally:
         finish_check()
 
@@ -463,89 +501,251 @@ def scheduled_check():
 def reschedule_checks():
     with schedule_lock:
         schedule.clear("stock-check")
-        schedule.every(state["interval"]).minutes.do(scheduled_check).tag("stock-check")
-    print(f"Scheduled checks every {state['interval']} mins", flush=True)
+        schedule.every(1).minutes.do(scheduled_check).tag("stock-check")
+    print("Scheduled multi-user checks every 1 min due-scan", flush=True)
 
 
 def run_scheduler():
     reschedule_checks()
-
-    print(
-        f"Tracker web service started - checking every {state['interval']} mins",
-        flush=True,
-    )
-
+    print("Tracker web service started", flush=True)
     while True:
         with schedule_lock:
             schedule.run_pending()
         time.sleep(30)
 
 
-def is_authorized_chat(update):
-    message = update.get("message") or update.get("callback_query", {}).get("message", {})
-    chat_id = str(message.get("chat", {}).get("id", ""))
-    return chat_id == str(TELEGRAM_CHAT_ID)
+def chat_id_from_message(message):
+    return str(message.get("chat", {}).get("id", ""))
 
 
-def prompt_for_url():
-    state["awaiting_product_url"] = True
-    send_control_message(
-        "*Send me an Amazon product link.*\n\n"
-        "I will add it to the tracker and check it with the others.",
-        **controls(),
+def profile_from_message(message, status="pending"):
+    user = message.get("from", {}) or {}
+    chat_id = chat_id_from_message(message)
+    return {
+        "chat_id": chat_id,
+        "first_name": user.get("first_name", ""),
+        "last_name": user.get("last_name", ""),
+        "username": user.get("username", ""),
+        "status": status,
+        "requested_at": now_text(),
+    }
+
+
+def display_name(profile):
+    name = " ".join(
+        part for part in [profile.get("first_name"), profile.get("last_name")] if part
+    ).strip()
+    return name or "Unknown"
+
+
+def bootstrap_admin():
+    admin_id = str(ADMIN_CHAT_ID)
+    add_approved_user(admin_id)
+    profile = load_user_profile(admin_id) or {}
+    profile.update(
+        {
+            "chat_id": admin_id,
+            "status": "approved",
+            "approved_at": profile.get("approved_at") or now_text(),
+            "approved_by": admin_id,
+            "username": profile.get("username", "admin"),
+        }
+    )
+    save_user_profile(admin_id, profile)
+    if not load_user_settings(admin_id):
+        save_user_settings(admin_id, default_settings())
+    if load_user_products(admin_id) is None:
+        save_user_products(admin_id, [])
+
+
+def approved_friend_count():
+    return len([chat_id for chat_id in list_approved_users() if not is_admin(chat_id)])
+
+
+def approval_buttons(chat_id):
+    return {
+        "inline_keyboard": [
+            [
+                {"text": "Approve", "callback_data": f"approve:{chat_id}"},
+                {"text": "Reject", "callback_data": f"reject:{chat_id}"},
+            ]
+        ]
+    }
+
+
+def request_access(message):
+    chat_id = chat_id_from_message(message)
+    if is_approved_user(chat_id):
+        send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
+        return
+    if is_rejected_user(chat_id):
+        send_telegram_message("*Access denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        return
+    if is_pending_user(chat_id):
+        send_telegram_message("*Access request already sent to admin.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        return
+    if approved_friend_count() >= MAX_USERS:
+        send_telegram_message("*Access is full right now.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        return
+
+    profile = profile_from_message(message)
+    save_user_profile(chat_id, profile)
+    add_pending_user(chat_id)
+    send_telegram_message("*Access request sent to admin. Please wait.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+
+    username = f"@{profile['username']}" if profile.get("username") else "none"
+    admin_message = (
+        "*New access request*\n\n"
+        f"Name: `{display_name(profile)}`\n"
+        f"Username: `{username}`\n"
+        f"Chat ID: `{chat_id}`"
+    )
+    send_telegram_message(
+        admin_message,
+        chat_id=ADMIN_CHAT_ID,
+        reply_markup=approval_buttons(chat_id),
     )
 
 
-def handle_product_url(text):
+def approve_user(chat_id):
+    if approved_friend_count() >= MAX_USERS and not is_approved_user(chat_id):
+        send_telegram_message("*User limit reached. Remove a user first.*", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+        return
+    profile = load_user_profile(chat_id) or {"chat_id": str(chat_id)}
+    profile.update(
+        {
+            "status": "approved",
+            "approved_at": now_text(),
+            "approved_by": str(ADMIN_CHAT_ID),
+        }
+    )
+    save_user_profile(chat_id, profile)
+    add_approved_user(chat_id)
+    if not load_user_settings(chat_id):
+        save_user_settings(chat_id, default_settings())
+    if not load_user_products(chat_id):
+        save_user_products(chat_id, [])
+    send_telegram_message("*Access approved. Use /start to open tracker.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+    send_telegram_message(f"*Approved user:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+
+
+def reject_user(chat_id):
+    profile = load_user_profile(chat_id) or {"chat_id": str(chat_id)}
+    profile["status"] = "rejected"
+    profile["rejected_at"] = now_text()
+    save_user_profile(chat_id, profile)
+    add_rejected_user(chat_id)
+    send_telegram_message("*Access denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+    send_telegram_message(f"*Rejected user:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+
+
+def users_message():
+    approved = list_approved_users()
+    pending = list_pending_users()
+    rejected = list_rejected_users()
+    lines = ["*Users*"]
+    lines.append(f"\nApproved: `{len(approved)}`")
+    for chat_id in approved:
+        profile = load_user_profile(chat_id)
+        label = "admin" if is_admin(chat_id) else "user"
+        lines.append(f"- `{chat_id}` ({label}) {display_name(profile)}")
+    lines.append(f"\nPending: `{len(pending)}`")
+    for chat_id in pending:
+        profile = load_user_profile(chat_id)
+        lines.append(f"- `{chat_id}` {display_name(profile)}")
+    lines.append(f"\nRejected: `{len(rejected)}`")
+    for chat_id in rejected:
+        profile = load_user_profile(chat_id)
+        lines.append(f"- `{chat_id}` {display_name(profile)}")
+    return "\n".join(lines)
+
+
+def ensure_authorized(chat_id):
+    return is_approved_user(chat_id)
+
+
+def prompt_for_url(chat_id):
+    state["awaiting_product_url"].add(str(chat_id))
+    send_control_message(
+        "*Send me an Amazon product link.*\n\nI will add it to your tracker.",
+        chat_id=chat_id,
+        **controls(get_user_settings(chat_id)),
+    )
+
+
+def handle_product_url(chat_id, text):
     match = URL_RE.search(text)
     if not match:
-        send_control_message("I could not find a URL. Send the Amazon product link.", **controls())
+        send_control_message("I could not find a URL. Send the Amazon product link.", chat_id=chat_id, **controls(get_user_settings(chat_id)))
         return
 
-    ok, message = add_product(match.group(0))
-    state["awaiting_product_url"] = False
-    send_control_message(f"*{message}*\n\nUse `/list` to see tracked products.", **controls())
+    ok, message = add_product(chat_id, match.group(0))
+    state["awaiting_product_url"].discard(str(chat_id))
+    send_control_message(f"*{message}*\n\nUse `/list` to see tracked products.", chat_id=chat_id, **controls(get_user_settings(chat_id)))
 
 
-def handle_command(text):
+def handle_command(message):
+    text = message.get("text", "")
     parts = text.split()
     command = parts[0].lower()
+    chat_id = chat_id_from_message(message)
 
     if command == "/start":
-        reload_products_from_storage()
-        send_control_message(control_status_message(), **controls())
-    elif command == "/status":
-        reload_products_from_storage()
-        send_control_message(control_status_message(), **controls())
+        if is_admin(chat_id):
+            bootstrap_admin()
+        if ensure_authorized(chat_id):
+            send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
+        else:
+            request_access(message)
+        return
+
+    if not ensure_authorized(chat_id):
+        send_telegram_message("*Access not approved yet.*\n\nSend /start to request access.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        return
+
+    settings = get_user_settings(chat_id)
+    if command == "/status":
+        send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(settings))
     elif command == "/list":
-        reload_products_from_storage()
-        send_control_message(product_list_message(), **controls())
+        send_control_message(product_list_message(chat_id), chat_id=chat_id, **controls(settings))
     elif command == "/add":
         if len(parts) > 1:
-            handle_product_url(" ".join(parts[1:]))
+            handle_product_url(chat_id, " ".join(parts[1:]))
         else:
-            prompt_for_url()
+            prompt_for_url(chat_id)
     elif command == "/remove":
         if len(parts) < 2:
-            send_control_message("Use `/remove 2` with the number from `/list`.", **controls())
+            send_control_message("Use `/remove 2` with the number from `/list`.", chat_id=chat_id, **controls(settings))
         else:
-            ok, message = remove_product(parts[1])
-            send_control_message(f"*{message}*", **controls())
+            ok, message = remove_product(chat_id, parts[1])
+            send_control_message(f"*{message}*", chat_id=chat_id, **controls(settings))
     elif command == "/check":
-        send_check_picker()
+        send_check_picker(chat_id)
     elif command == "/cancel":
-        state["check_running"] = False
-        state["check_started_at"] = None
-        send_control_message("*Check state cleared.*", **controls())
+        clear_check_state_only()
+        send_control_message("*Check state cleared.*", chat_id=chat_id, **controls(settings))
     elif command == "/pause":
-        state["paused"] = True
-        persist_settings()
-        send_control_message("*Tracker paused.*", **controls())
+        settings["paused"] = True
+        save_user_settings(chat_id, settings)
+        send_control_message("*Tracker paused.*", chat_id=chat_id, **controls(settings))
     elif command == "/resume":
-        state["paused"] = False
-        persist_settings()
-        send_control_message("*Tracker resumed.*", **controls())
+        settings["paused"] = False
+        save_user_settings(chat_id, settings)
+        send_control_message("*Tracker resumed.*", chat_id=chat_id, **controls(settings))
+    elif command == "/users" and is_admin(chat_id):
+        send_telegram_message(users_message(), chat_id=chat_id)
+    elif command == "/removeuser" and is_admin(chat_id):
+        if len(parts) < 2:
+            send_telegram_message("Use `/removeuser 123456789`.", chat_id=chat_id)
+        else:
+            remove_approved_user(parts[1])
+            profile = load_user_profile(parts[1]) or {"chat_id": parts[1]}
+            profile["status"] = "removed"
+            profile["removed_at"] = now_text()
+            save_user_profile(parts[1], profile)
+            send_telegram_message(f"*Removed user access:* `{parts[1]}`", chat_id=chat_id)
     elif command == "/help":
+        extra = "\n/users - list users\n/removeuser 123 - remove user access" if is_admin(chat_id) else ""
         send_control_message(
             "*Commands*\n\n"
             "/start - show tracker dashboard\n"
@@ -555,63 +755,81 @@ def handle_command(text):
             "/remove 2 - remove product number 2\n"
             "/check - choose a product to check now\n"
             "/pause - pause scheduled checks\n"
-            "/resume - resume scheduled checks",
-            **controls(),
+            "/resume - resume scheduled checks"
+            f"{extra}",
+            chat_id=chat_id,
+            **controls(settings),
         )
 
 
 def handle_callback(query):
     data = query.get("data", "")
     callback_id = query.get("id")
+    message = query.get("message", {})
+    chat_id = chat_id_from_message(message)
 
+    if data.startswith("approve:") and is_admin(chat_id):
+        target = data.split(":", 1)[1]
+        approve_user(target)
+        answer_callback_query(callback_id, "Approved")
+        return
+    if data.startswith("reject:") and is_admin(chat_id):
+        target = data.split(":", 1)[1]
+        reject_user(target)
+        answer_callback_query(callback_id, "Rejected")
+        return
+
+    if not ensure_authorized(chat_id):
+        answer_callback_query(callback_id, "Access not approved")
+        send_telegram_message("*Access not approved yet.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        return
+
+    settings = get_user_settings(chat_id)
     if data == "check":
         answer_callback_query(callback_id, "Choose a product")
-        send_check_picker()
+        send_check_picker(chat_id)
     elif data.startswith("check_product:"):
         product_number = int(data.split(":", 1)[1])
         answer_callback_query(callback_id, f"Checking Product {product_number}")
-        run_single_product_check_async(product_number - 1)
+        run_single_product_check_async(chat_id, product_number - 1)
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
-        reload_products_from_storage()
-        send_control_message(control_status_message(), **controls())
+        send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(settings))
     elif data == "cancel_check":
-        state["check_running"] = False
-        state["check_started_at"] = None
+        clear_check_state_only()
         answer_callback_query(callback_id, "Check state cleared")
-        send_control_message("*Check state cleared.*", **controls())
+        send_control_message("*Check state cleared.*", chat_id=chat_id, **controls(settings))
     elif data == "add":
         answer_callback_query(callback_id, "Send a product link")
-        prompt_for_url()
+        prompt_for_url(chat_id)
     elif data == "list":
         answer_callback_query(callback_id, "Sending product list")
-        reload_products_from_storage()
-        send_control_message(product_list_message(), **controls())
+        send_control_message(product_list_message(chat_id), chat_id=chat_id, **controls(settings))
     elif data == "pause":
-        state["paused"] = True
-        persist_settings()
+        settings["paused"] = True
+        save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Paused")
-        send_control_message("*Tracker paused.*", **controls())
+        send_control_message("*Tracker paused.*", chat_id=chat_id, **controls(settings))
     elif data == "resume":
-        state["paused"] = False
-        persist_settings()
+        settings["paused"] = False
+        save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Resumed")
-        send_control_message("*Tracker resumed.*", **controls())
+        send_control_message("*Tracker resumed.*", chat_id=chat_id, **controls(settings))
     elif data.startswith("interval:"):
-        state["interval"] = int(data.split(":", 1)[1])
-        persist_settings()
-        reschedule_checks()
-        answer_callback_query(callback_id, f"Interval set to {state['interval']}m")
+        settings["interval"] = max(int(data.split(":", 1)[1]), MIN_CHECK_INTERVAL_MINUTES)
+        save_user_settings(chat_id, settings)
+        answer_callback_query(callback_id, f"Interval set to {settings['interval']}m")
         send_control_message(
-            f"*Check interval updated:* `{state['interval']} minutes`",
-            **controls(),
+            f"*Check interval updated:* `{settings['interval']} minutes`",
+            chat_id=chat_id,
+            **controls(settings),
         )
     elif data == "toggle_notify":
-        state["notify_only_on_change"] = not state["notify_only_on_change"]
-        persist_settings()
-        mode = "changes only" if state["notify_only_on_change"] else "every check"
+        settings["notify_only_on_change"] = not settings["notify_only_on_change"]
+        save_user_settings(chat_id, settings)
+        mode = "changes only" if settings["notify_only_on_change"] else "every check"
         answer_callback_query(callback_id, f"Notifications: {mode}")
-        send_control_message(f"*Notifications set to:* `{mode}`", **controls())
+        send_control_message(f"*Notifications set to:* `{mode}`", chat_id=chat_id, **controls(settings))
 
 
 def run_telegram_controls():
@@ -620,66 +838,66 @@ def run_telegram_controls():
             updates = get_updates(state["telegram_offset"])
             for update in updates:
                 state["telegram_offset"] = update["update_id"] + 1
-                if not is_authorized_chat(update):
-                    continue
-
                 if "callback_query" in update:
                     handle_callback(update["callback_query"])
                 elif "message" in update:
-                    text = update["message"].get("text", "")
+                    message = update["message"]
+                    text = message.get("text", "")
+                    chat_id = chat_id_from_message(message)
                     if text.startswith("/"):
-                        handle_command(text)
-                    elif state["awaiting_product_url"] or URL_RE.search(text):
-                        handle_product_url(text)
+                        handle_command(message)
+                    elif ensure_authorized(chat_id) and (
+                        str(chat_id) in state["awaiting_product_url"] or URL_RE.search(text)
+                    ):
+                        handle_product_url(chat_id, text)
         except Exception as e:
             print(f"Telegram control loop error: {e}", flush=True)
             time.sleep(10)
 
 
 def scraper_health():
-    now = int(time.time())
-    # A product is "stale" if it has not produced a clear result for 3 cycles.
-    stale_after = state["interval"] * 60 * 3
+    approved = list_approved_users()
+    all_products = []
+    min_interval = MIN_CHECK_INTERVAL_MINUTES
+    for chat_id in approved:
+        settings = get_user_settings(chat_id)
+        min_interval = min(min_interval, settings["interval"])
+        all_products.extend(get_user_products(chat_id))
+    if not all_products:
+        return True
 
-    def is_fresh(product):
-        epoch = product.get("last_success_epoch")
-        return epoch is not None and (now - epoch) <= stale_after
-
-    healthy = bool(state["products"]) and all(
-        is_fresh(product) for product in state["products"]
+    stale_after = min_interval * 60 * 3
+    current = now_epoch()
+    return all(
+        product.get("last_success_epoch") is not None
+        and (current - int(product.get("last_success_epoch"))) <= stale_after
+        for product in all_products
     )
-    return healthy
 
 
 @app.get("/")
 def health():
+    approved = list_approved_users()
+    pending = list_pending_users()
+    total_products = sum(len(get_user_products(chat_id)) for chat_id in approved)
     return {
         "status": "running",
         "scraper_healthy": scraper_health(),
-        "product_count": len(state["products"]),
-        "max_products": MAX_PRODUCTS,
-        "products": [
-            {
-                "name": product["name"],
-                "url": product["url"],
-                "last_stock_status": product_status_label(product),
-                "last_checked": product["last_checked"],
-                "last_success_epoch": product.get("last_success_epoch"),
-            }
-            for product in state["products"]
-        ],
-        "paused": state["paused"],
-        "interval_minutes": state["interval"],
-        "notification_mode": (
-            "changes_only" if state["notify_only_on_change"] else "every_check"
-        ),
+        "approved_user_count": len(approved),
+        "pending_user_count": len(pending),
+        "total_product_count": total_products,
+        "max_users": MAX_USERS,
+        "max_products_per_user": MAX_PRODUCTS_PER_USER,
+        "admin_product_cap_exempt": True,
+        "max_unique_checks_per_cycle": MAX_UNIQUE_CHECKS_PER_CYCLE,
+        "interval_floor_minutes": MIN_CHECK_INTERVAL_MINUTES,
+        "check_running": state["check_running"],
     }
 
 
 if __name__ == "__main__":
     validate_config()
-    initialize_products()
-    initialize_settings()
+    bootstrap_admin()
     set_bot_commands()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=run_telegram_controls, daemon=True).start()
