@@ -154,6 +154,22 @@ def clear_stale_check_state():
         state["check_started_at"] = None
 
 
+def begin_check():
+    clear_stale_check_state()
+    if not check_lock.acquire(blocking=False):
+        return False
+    state["check_running"] = True
+    state["check_started_at"] = now_ist()
+    return True
+
+
+def finish_check():
+    state["check_running"] = False
+    state["check_started_at"] = None
+    if check_lock.locked():
+        check_lock.release()
+
+
 def status_label(available):
     if available is True:
         return "available"
@@ -298,35 +314,32 @@ def single_check_summary_message(product):
 
 
 def run_single_product_check(product_index, force_notify=False, reload_first=False):
-    with check_lock:
-        if reload_first:
-            reload_products_from_storage()
-        if product_index < 0 or product_index >= len(state["products"]):
-            return None
+    if reload_first:
+        reload_products_from_storage()
+    if product_index < 0 or product_index >= len(state["products"]):
+        return None
 
-        product = state["products"][product_index]
-        print(f"Checking {product['name']}: {product['url']}", flush=True)
-        results = check_urls([product["url"]])
-        result = results[0] if results else {"available": None, "title": None}
-        apply_product_result(product, result, force_notify=force_notify)
-        save_products(state["products"])
-        return product
+    product = state["products"][product_index]
+    print(f"Checking {product['name']}: {product['url']}", flush=True)
+    results = check_urls([product["url"]])
+    result = results[0] if results else {"available": None, "title": None}
+    apply_product_result(product, result, force_notify=force_notify)
+    save_products(state["products"])
+    return product
 
 
 def run_single_product_check_async(product_index):
-    clear_stale_check_state()
-    if state["check_running"] or check_lock.locked():
+    if not begin_check():
         send_control_message("*A check is already running.*", **controls())
         return
 
     reload_products_from_storage()
     if product_index < 0 or product_index >= len(state["products"]):
+        finish_check()
         send_control_message("*That product number is not in the list.*", **controls())
         return
 
     product = state["products"][product_index]
-    state["check_running"] = True
-    state["check_started_at"] = now_ist()
     send_control_message(f"*Check started:* {product['name']}", **controls())
 
     def worker():
@@ -342,8 +355,7 @@ def run_single_product_check_async(product_index):
             print(f"Manual check failed: {e}", flush=True)
             send_control_message(f"*Check failed:* `{e}`", **controls())
         finally:
-            state["check_running"] = False
-            state["check_started_at"] = None
+            finish_check()
 
     threading.Thread(target=worker, daemon=True).start()
 
@@ -415,21 +427,17 @@ def run_next_scheduled_check():
 
 
 def scheduled_check():
-    clear_stale_check_state()
     if state["paused"]:
         print("Tracker is paused; skipping scheduled check", flush=True)
         return
-    if state["check_running"] or check_lock.locked():
+    if not begin_check():
         print("Another check is running; skipping scheduled check", flush=True)
         return
 
-    state["check_running"] = True
-    state["check_started_at"] = now_ist()
     try:
         run_next_scheduled_check()
     finally:
-        state["check_running"] = False
-        state["check_started_at"] = None
+        finish_check()
 
 
 def reschedule_checks():
