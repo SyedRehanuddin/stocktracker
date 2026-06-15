@@ -1,5 +1,7 @@
 import argparse
 import html
+import os
+import random
 import re
 import time
 
@@ -10,11 +12,20 @@ from config import PRODUCT_URL, validate_config
 from notifier import send_alert, send_status_alert
 
 REQUEST_TIMEOUT = 25
+
+# Optional residential/proxy support. No effect unless PROXY_URL is set.
+PROXY_URL = os.getenv("PROXY_URL")
+
+# IMPORTANT: this is a DESKTOP User-Agent on purpose. The detection patterns
+# below look for desktop element IDs (add-to-cart-button, buy-now-button,
+# productTitle). A mobile User-Agent makes Amazon serve a different layout
+# where those IDs may be missing, which causes false "unclear" results and
+# MISSED restock alerts. Keep the UA and the detection layout in sync.
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Linux; Android 13; Pixel 7) "
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Mobile Safari/537.36"
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-IN,en;q=0.9",
@@ -32,6 +43,7 @@ AVAILABLE_PATTERNS = (
 UNAVAILABLE_MARKERS = (
     "currently unavailable",
     "temporarily out of stock",
+    "we don't know when or if this item will be back in stock",
 )
 PRODUCT_TITLE_PATTERN = re.compile(
     r'id=["\']productTitle["\'][^>]*>(.*?)</',
@@ -44,16 +56,19 @@ PAGE_TITLE_PATTERN = re.compile(
 
 
 def detect_availability(page_html):
-    html = page_html.lower()
+    lowered = page_html.lower()
 
-    if any(marker in html for marker in BOT_CHECK_MARKERS):
+    if any(marker in lowered for marker in BOT_CHECK_MARKERS):
         print("Amazon returned a bot-check page", flush=True)
         return None
 
+    # Available is checked before unavailable on purpose. For a restock
+    # tracker a false "available" costs one wasted click, while a missed
+    # restock defeats the whole tool. The bias favors alerting.
     if any(pattern.search(page_html) for pattern in AVAILABLE_PATTERNS):
         return True
 
-    if any(marker in html for marker in UNAVAILABLE_MARKERS):
+    if any(marker in lowered for marker in UNAVAILABLE_MARKERS):
         return False
 
     return None
@@ -71,6 +86,12 @@ def extract_product_title(page_html):
     return title[:180] or None
 
 
+def _proxies():
+    if PROXY_URL:
+        return {"http": PROXY_URL, "https": PROXY_URL}
+    return None
+
+
 def fetch_product_result(product_url, session=None):
     client = session or requests.Session()
     response = client.get(
@@ -78,6 +99,7 @@ def fetch_product_result(product_url, session=None):
         headers=HEADERS,
         timeout=REQUEST_TIMEOUT,
         allow_redirects=True,
+        proxies=_proxies(),
     )
     response.raise_for_status()
     return {
@@ -107,7 +129,12 @@ def is_available(product_url=PRODUCT_URL):
 def check_urls(product_urls):
     results = []
     with requests.Session() as session:
-        for product_url in product_urls:
+        for index, product_url in enumerate(product_urls):
+            # Space requests out so all products are not fetched in one burst.
+            # Manual single-product checks pass one URL, so they stay instant.
+            if index > 0:
+                time.sleep(random.uniform(2, 5))
+
             print(f"Checking availability: {product_url}", flush=True)
             try:
                 result = fetch_product_result(product_url, session=session)

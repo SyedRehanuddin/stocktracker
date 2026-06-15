@@ -1,3 +1,5 @@
+import time
+
 import requests
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, PRODUCT_URL
 
@@ -44,8 +46,12 @@ def build_buttons(
     return {"inline_keyboard": rows}
 
 
-def telegram_request(method, payload):
-    response = requests.post(f"{API_URL}/{method}", json=payload, timeout=20)
+def telegram_request(method, payload, timeout=20):
+    try:
+        response = requests.post(f"{API_URL}/{method}", json=payload, timeout=timeout)
+    except requests.RequestException as error:
+        print(f"Telegram {method} request error: {error}", flush=True)
+        return None
     if response.status_code != 200:
         print(f"Telegram {method} failed: {response.text}", flush=True)
     return response
@@ -58,23 +64,48 @@ def send_telegram_message(
     product_url=None,
     extra_rows=None,
 ):
-    response = telegram_request(
-        "sendMessage",
-        {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True,
-            "reply_markup": build_buttons(
-                paused=paused,
-                notify_only_on_change=notify_only_on_change,
-                product_url=product_url,
-                extra_rows=extra_rows,
-            ),
-        },
-    )
-    if response.status_code == 200:
-        print("Telegram message sent!", flush=True)
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
+        "reply_markup": build_buttons(
+            paused=paused,
+            notify_only_on_change=notify_only_on_change,
+            product_url=product_url,
+            extra_rows=extra_rows,
+        ),
+    }
+
+    # Retry a few times so a single network blip or transient Telegram error
+    # does not silently lose an alert.
+    for attempt in range(1, 4):
+        response = telegram_request("sendMessage", payload)
+        if response is not None and response.status_code == 200:
+            print("Telegram message sent!", flush=True)
+            return True
+
+        # Markdown rejected (bad formatting characters). Resend once as plain
+        # text so the message still gets through. This is most common for
+        # error messages that contain raw, unescaped error text.
+        if (
+            response is not None
+            and response.status_code == 400
+            and "parse_mode" in payload
+        ):
+            print("Markdown rejected; resending as plain text", flush=True)
+            plain_payload = dict(payload)
+            plain_payload.pop("parse_mode", None)
+            plain_response = telegram_request("sendMessage", plain_payload)
+            if plain_response is not None and plain_response.status_code == 200:
+                print("Telegram message sent as plain text", flush=True)
+                return True
+
+        if attempt < 3:
+            time.sleep(2 * attempt)  # backoff: 2s, then 4s
+
+    print("Telegram message FAILED after retries", flush=True)
+    return False
 
 
 def send_alert(**controls):
@@ -126,8 +157,11 @@ def get_updates(offset=None):
     if offset is not None:
         payload["offset"] = offset
 
-    response = telegram_request("getUpdates", payload)
-    if response.status_code != 200:
+    # HTTP read timeout MUST be longer than the long-poll timeout above (25s),
+    # otherwise the request times out on itself whenever no message arrives,
+    # spamming errors and making button responses sluggish.
+    response = telegram_request("getUpdates", payload, timeout=35)
+    if response is None or response.status_code != 200:
         return []
     data = response.json()
     return data.get("result", []) if data.get("ok") else []

@@ -40,6 +40,7 @@ def make_product(url, name=None, index=1):
         "name": clean_product_name(name) or f"Product {index}",
         "last_status": None,
         "last_checked": None,
+        "last_success_epoch": None,
         "notified_in_stock": False,
     }
 
@@ -52,7 +53,6 @@ state = {
     "interval": int(os.getenv("CHECK_INTERVAL_MINUTES", "15")),
     "telegram_offset": None,
     "awaiting_product_url": False,
-    "next_product_index": 0,
     "products": [],
 }
 
@@ -75,6 +75,7 @@ def normalize_loaded_product(product, index):
         "name": clean_product_name(product.get("name")) or f"Product {index}",
         "last_status": product.get("last_status"),
         "last_checked": product.get("last_checked"),
+        "last_success_epoch": product.get("last_success_epoch"),
         "notified_in_stock": bool(product.get("notified_in_stock", False)),
     }
 
@@ -82,19 +83,17 @@ def normalize_loaded_product(product, index):
 def initialize_products():
     loaded = load_products()
     if loaded:
+        # Products already exist in storage. Trust them as the source of truth.
+        # Do NOT re-add the env-seeded URLs here, otherwise any product removed
+        # with /remove silently comes back on the next restart/redeploy.
         state["products"] = [
             normalize_loaded_product(product, index)
             for index, product in enumerate(loaded, start=1)
         ]
-        existing_urls = {product["url"] for product in state["products"]}
-        for url in default_product_urls():
-            if url not in existing_urls:
-                state["products"].append(
-                    make_product(url, index=len(state["products"]) + 1)
-                )
         save_products(state["products"])
         return
 
+    # First run only (storage empty): seed from the env URL list.
     state["products"] = [
         make_product(url, f"Product {index}", index=index)
         for index, url in enumerate(default_product_urls(), start=1)
@@ -373,6 +372,12 @@ def apply_product_result(product, result, force_notify=False):
     product["last_status"] = available
     product["last_checked"] = datetime.now(IST).strftime("%d %b %Y, %I:%M %p IST")
 
+    # Record a successful read only when Amazon gave a clear answer. A None
+    # result (bot-check / HTTP error) is NOT a success, so the health check
+    # can detect a scraper that has gone blind.
+    if available is True or available is False:
+        product["last_success_epoch"] = int(time.time())
+
     send_now = force_notify or should_send_status(product, available, previous_status)
     if send_now:
         index = product_number(product)
@@ -601,10 +606,26 @@ def run_telegram_controls():
             time.sleep(10)
 
 
+def scraper_health():
+    now = int(time.time())
+    # A product is "stale" if it has not produced a clear result for 3 cycles.
+    stale_after = state["interval"] * 60 * 3
+
+    def is_fresh(product):
+        epoch = product.get("last_success_epoch")
+        return epoch is not None and (now - epoch) <= stale_after
+
+    healthy = bool(state["products"]) and all(
+        is_fresh(product) for product in state["products"]
+    )
+    return healthy
+
+
 @app.get("/")
 def health():
     return {
         "status": "running",
+        "scraper_healthy": scraper_health(),
         "product_count": len(state["products"]),
         "products": [
             {
@@ -612,6 +633,7 @@ def health():
                 "url": product["url"],
                 "last_stock_status": product_status_label(product),
                 "last_checked": product["last_checked"],
+                "last_success_epoch": product.get("last_success_epoch"),
             }
             for product in state["products"]
         ],
@@ -620,7 +642,6 @@ def health():
         "notification_mode": (
             "changes_only" if state["notify_only_on_change"] else "every_check"
         ),
-        "next_product_index": state["next_product_index"],
     }
 
 

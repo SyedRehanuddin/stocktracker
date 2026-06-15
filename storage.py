@@ -12,16 +12,36 @@ SETTINGS_KEY = "stock_tracker:settings"
 LOCAL_STORE = Path("products.json")
 LOCAL_SETTINGS_STORE = Path("settings.json")
 
+# Show the "no Redis" warning only once so logs are not spammed.
+_redis_warning_shown = False
+
+
+def _warn_no_redis(reason):
+    global _redis_warning_shown
+    if _redis_warning_shown:
+        return
+    _redis_warning_shown = True
+    print(
+        "WARNING: Redis is NOT active (" + reason + "). "
+        "Falling back to local file storage. On Render free tier this file is "
+        "wiped on every restart, so products and settings will NOT persist. "
+        "Set a valid REDIS_URL to fix this.",
+        flush=True,
+    )
+
 
 def get_redis_client():
     redis_url = os.getenv("REDIS_URL")
-    if not redis_url or redis is None:
+    if not redis_url:
+        _warn_no_redis("REDIS_URL is not set")
+        return None
+    if redis is None:
+        _warn_no_redis("the 'redis' package is not installed")
         return None
     if not redis_url.startswith(("redis://", "rediss://", "unix://")):
-        print(
-            "Ignoring REDIS_URL because it is not a Redis connection URL. "
-            "It must start with redis://, rediss://, or unix://.",
-            flush=True,
+        _warn_no_redis(
+            "REDIS_URL is not a Redis connection URL "
+            "(must start with redis://, rediss://, or unix://)"
         )
         return None
     return redis.from_url(redis_url, decode_responses=True)
