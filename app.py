@@ -863,7 +863,7 @@ def run_telegram_controls():
             time.sleep(10)
 
 
-def scraper_health():
+def scraper_health_summary():
     approved = list_approved_users()
     all_products = []
     min_interval = MIN_CHECK_INTERVAL_MINUTES
@@ -872,15 +872,37 @@ def scraper_health():
         min_interval = min(min_interval, settings["interval"])
         all_products.extend(get_user_products(chat_id))
     if not all_products:
-        return True
+        return {
+            "healthy": True,
+            "fresh_product_count": 0,
+            "stale_product_count": 0,
+            "total_product_count": 0,
+        }
 
     stale_after = min_interval * 60 * 3
     current = now_epoch()
-    return all(
-        product.get("last_success_epoch") is not None
-        and (current - int(product.get("last_success_epoch"))) <= stale_after
+    fresh_count = sum(
+        1
         for product in all_products
+        if product.get("last_success_epoch") is not None
+        and (current - int(product.get("last_success_epoch"))) <= stale_after
     )
+    stale_count = len(all_products) - fresh_count
+
+    # One unclear/no-featured-offer product should not make the entire service
+    # look broken. Mark the scraper healthy when most products have recent
+    # clear results, but still expose aggregate stale counts for visibility.
+    healthy = fresh_count > 0 and fresh_count / len(all_products) >= 0.8
+    return {
+        "healthy": healthy,
+        "fresh_product_count": fresh_count,
+        "stale_product_count": stale_count,
+        "total_product_count": len(all_products),
+    }
+
+
+def scraper_health():
+    return scraper_health_summary()["healthy"]
 
 
 @app.get("/")
@@ -892,12 +914,15 @@ def public_health_data():
     approved = list_approved_users()
     pending = list_pending_users()
     total_products = sum(len(get_user_products(chat_id)) for chat_id in approved)
+    health_summary = scraper_health_summary()
     return {
         "status": "running",
-        "scraper_healthy": scraper_health(),
+        "scraper_healthy": health_summary["healthy"],
         "approved_user_count": len(approved),
         "pending_user_count": len(pending),
         "total_product_count": total_products,
+        "fresh_product_count": health_summary["fresh_product_count"],
+        "stale_product_count": health_summary["stale_product_count"],
         "max_users": MAX_USERS,
         "max_products_per_user": MAX_PRODUCTS_PER_USER,
         "admin_product_cap_exempt": True,
@@ -1061,6 +1086,8 @@ def dashboard():
     </section>
 
     <section class="details" aria-label="Configuration">
+      <div class="row"><span>Fresh Products</span><strong>{data['fresh_product_count']}</strong></div>
+      <div class="row"><span>Needs Fresh Check</span><strong>{data['stale_product_count']}</strong></div>
       <div class="row"><span>Pending Requests</span><strong>{data['pending_user_count']}</strong></div>
       <div class="row"><span>Minimum Interval</span><strong>{data['interval_floor_minutes']} minutes</strong></div>
       <div class="row"><span>Max Friends</span><strong>{data['max_users']}</strong></div>
