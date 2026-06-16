@@ -13,14 +13,8 @@ def build_buttons(
     product_url=None,
     extra_rows=None,
 ):
-    pause_text = "⏸ Pause" if not paused else "✅ ⏸ Pause"
-    resume_text = "✅ ▶️ Resume" if not paused else "▶️ Resume"
-    every_check_text = "✅ 🔔 Every Check" if not notify_only_on_change else "🔔 Every Check"
-    changes_only_text = "🔕 Changes Only" if not notify_only_on_change else "✅ 🔕 Changes Only"
-    interval_texts = {
-        minutes: f"✅ {minutes}m" if interval == minutes else f"{minutes}m"
-        for minutes in (15, 30, 60)
-    }
+    pause_text = "⏸ Pause Tracking" if paused else "✅ ⏸ Pause Tracking"
+    resume_text = "✅ ▶️ Resume Tracking" if paused else "▶️ Resume Tracking"
     rows = []
     if product_url:
         rows.append([{"text": "Buy on Amazon", "url": product_url}])
@@ -29,28 +23,14 @@ def build_buttons(
 
     rows.extend(
         [
-            [
-                {"text": "🔍 Check Now", "callback_data": "check"},
-                {"text": "📋 Status", "callback_data": "status"},
-            ],
-            [
-                {"text": "➕ Add Product", "callback_data": "add"},
-                {"text": "📦 List Products", "callback_data": "list"},
-            ],
-            [
-                {"text": pause_text, "callback_data": "pause"},
-                {"text": resume_text, "callback_data": "resume"},
-            ],
-            [
-                {"text": interval_texts[15], "callback_data": "interval:15"},
-                {"text": interval_texts[30], "callback_data": "interval:30"},
-                {"text": interval_texts[60], "callback_data": "interval:60"},
-            ],
-            [
-                {"text": every_check_text, "callback_data": "notify:every"},
-                {"text": changes_only_text, "callback_data": "notify:changes"},
-            ],
-            [{"text": "❌ Cancel Check", "callback_data": "cancel_check"}],
+            [{"text": "🔍 Check Products", "callback_data": "check"}],
+            [{"text": "📋 Tracker Status", "callback_data": "status"}],
+            [{"text": "➕ Add Amazon Product", "callback_data": "add"}],
+            [{"text": "📦 My Products", "callback_data": "list"}],
+            [{"text": pause_text, "callback_data": "pause"}],
+            [{"text": resume_text, "callback_data": "resume"}],
+            [{"text": "⏱ How often to check", "callback_data": "interval_menu"}],
+            [{"text": "🔔 Alert settings", "callback_data": "alert_menu"}],
         ]
     )
 
@@ -207,6 +187,7 @@ def set_bot_commands():
                 {"command": "add", "description": "Add an Amazon product URL"},
                 {"command": "list", "description": "List tracked products"},
                 {"command": "remove", "description": "Remove a product by number"},
+                {"command": "rename", "description": "Rename a product by number"},
                 {"command": "cancel", "description": "Cancel stuck check state"},
                 {"command": "pause", "description": "Pause scheduled checks"},
                 {"command": "resume", "description": "Resume scheduled checks"},

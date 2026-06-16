@@ -58,6 +58,14 @@ state = {
 }
 
 
+def short_label(text, limit=42):
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    trimmed = text[: limit - 3].rsplit(" ", 1)[0].strip()
+    return f"{trimmed}..." if trimmed else text[:limit]
+
+
 def clean_url(url):
     return url.strip().strip("<>").rstrip(").,")
 
@@ -122,9 +130,12 @@ def get_user_settings(chat_id):
 
 
 def make_product(url, name=None, index=1):
+    cleaned_name = clean_product_name(name) or f"Product {index}"
     return {
         "url": clean_url(url),
-        "name": clean_product_name(name) or f"Product {index}",
+        "name": cleaned_name,
+        "source_name": cleaned_name,
+        "custom_name": None,
         "last_status": None,
         "last_checked": None,
         "last_success_epoch": None,
@@ -180,7 +191,7 @@ def product_status_block(index, product):
     price = product.get("last_price") or "not found"
     return (
         f"*Product {index}*\n"
-        f"Name: {product['name']}\n"
+        f"Name: {product_display_name(product)}\n"
         f"Status: `{product_status_label(product)}`\n"
         f"Price: `{price}`\n"
         f"Last checked: `{checked}`"
@@ -193,6 +204,22 @@ def controls(settings):
         "notify_only_on_change": settings["notify_only_on_change"],
         "interval": settings["interval"],
     }
+
+
+def product_display_name(product):
+    return (
+        clean_product_name(product.get("custom_name"))
+        or clean_product_name(product.get("source_name"))
+        or clean_product_name(product.get("name"))
+        or "Product"
+    )
+
+
+def product_button_name(index, product):
+    custom_name = clean_product_name(product.get("custom_name"))
+    if custom_name:
+        return short_label(custom_name)
+    return f"Product {index}"
 
 
 def product_exists(products, url):
@@ -231,7 +258,27 @@ def remove_product(chat_id, number_text):
 
     removed = products.pop(number - 1)
     save_user_products(chat_id, products)
-    return True, f"Removed {removed['name']}."
+    return True, f"Removed {product_display_name(removed)}."
+
+
+def rename_product(chat_id, number_text, new_name):
+    products = get_user_products(chat_id)
+    try:
+        number = int(number_text)
+    except ValueError:
+        return False, "Use `/rename 2 Gaming Keyboard`."
+
+    if number < 1 or number > len(products):
+        return False, "That product number is not in the list."
+
+    cleaned_name = clean_product_name(new_name)
+    if not cleaned_name:
+        return False, "Send a name after the product number. Example: `/rename 2 Gaming Keyboard`."
+
+    products[number - 1]["custom_name"] = cleaned_name
+    products[number - 1]["name"] = cleaned_name
+    save_user_products(chat_id, products)
+    return True, f"Renamed Product {number} to {cleaned_name}."
 
 
 def product_list_message(chat_id):
@@ -308,11 +355,11 @@ def control_status_message(chat_id):
 
 def product_check_rows(chat_id):
     rows = []
-    for index, _product in enumerate(get_user_products(chat_id), start=1):
+    for index, product in enumerate(get_user_products(chat_id), start=1):
         rows.append(
             [
                 {
-                    "text": f"🔍 Check Product {index}",
+                    "text": f"🔍 Check {product_button_name(index, product)}",
                     "callback_data": f"check_product:{index}",
                 }
             ]
@@ -333,6 +380,65 @@ def send_check_picker(chat_id):
         check_picker_message(chat_id),
         chat_id=chat_id,
         reply_markup={"inline_keyboard": product_check_rows(chat_id)},
+    )
+
+
+def interval_menu_message(settings):
+    return (
+        "*How often should I check?*\n\n"
+        f"Current: `{settings['interval']} minutes`"
+    )
+
+
+def interval_menu_markup(settings):
+    def text(minutes):
+        return f"✅ Every {minutes} minutes" if settings["interval"] == minutes else f"Every {minutes} minutes"
+
+    return {
+        "inline_keyboard": [
+            [{"text": text(15), "callback_data": "interval:15"}],
+            [{"text": text(30), "callback_data": "interval:30"}],
+            [{"text": text(60), "callback_data": "interval:60"}],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
+    }
+
+
+def send_interval_menu(chat_id):
+    settings = get_user_settings(chat_id)
+    send_telegram_message(
+        interval_menu_message(settings),
+        chat_id=chat_id,
+        reply_markup=interval_menu_markup(settings),
+    )
+
+
+def alert_menu_message(settings):
+    mode = "only when stock changes" if settings["notify_only_on_change"] else "after every check"
+    return (
+        "*Alert settings*\n\n"
+        f"Current: `Alert me {mode}`"
+    )
+
+
+def alert_menu_markup(settings):
+    every_text = "✅ 🔔 Alert me every check" if not settings["notify_only_on_change"] else "🔔 Alert me every check"
+    changes_text = "🔕 Alert only when stock changes" if not settings["notify_only_on_change"] else "✅ 🔕 Alert only when stock changes"
+    return {
+        "inline_keyboard": [
+            [{"text": every_text, "callback_data": "notify:every"}],
+            [{"text": changes_text, "callback_data": "notify:changes"}],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
+    }
+
+
+def send_alert_menu(chat_id):
+    settings = get_user_settings(chat_id)
+    send_telegram_message(
+        alert_menu_message(settings),
+        chat_id=chat_id,
+        reply_markup=alert_menu_markup(settings),
     )
 
 
@@ -371,7 +477,9 @@ def apply_product_result(
 
     previous_status = product["last_status"]
     if title:
-        product["name"] = title
+        product["source_name"] = title
+        if not product.get("custom_name"):
+            product["name"] = title
     product["last_price"] = price
     product["last_status"] = available
     product["last_checked"] = now_text()
@@ -384,7 +492,7 @@ def apply_product_result(
     if send_now:
         index = product_number(products, product)
         notification_name = (
-            f"Product {index} - {product['name']}" if index else product["name"]
+            f"Product {index} - {product_display_name(product)}" if index else product_display_name(product)
         )
         send_status_alert(
             available,
@@ -408,7 +516,7 @@ def run_single_product_check(chat_id, product_index, force_notify=False, send_al
         return None
 
     product = products[product_index]
-    print(f"Checking {chat_id} {product['name']}: {product['url']}", flush=True)
+    print(f"Checking {chat_id} {product_display_name(product)}: {product['url']}", flush=True)
     results = check_urls([product["url"]])
     result = results[0] if results else {"available": None, "title": None}
     apply_product_result(
@@ -446,7 +554,7 @@ def run_single_product_check_async(chat_id, product_index):
         return
 
     product = products[product_index]
-    send_control_message(f"*Check started:* {product['name']}", chat_id=chat_id, **controls(settings))
+    send_control_message(f"*Check started:* {product_display_name(product)}", chat_id=chat_id, **controls(settings))
 
     def worker():
         try:
@@ -748,6 +856,16 @@ def handle_command(message):
         else:
             ok, message = remove_product(chat_id, parts[1])
             send_control_message(f"*{message}*", chat_id=chat_id, **controls(settings))
+    elif command == "/rename":
+        if len(parts) < 3:
+            send_control_message(
+                "Use `/rename 2 Gaming Keyboard` with the product number and new name.",
+                chat_id=chat_id,
+                **controls(settings),
+            )
+        else:
+            ok, message = rename_product(chat_id, parts[1], " ".join(parts[2:]))
+            send_control_message(f"*{message}*", chat_id=chat_id, **controls(settings))
     elif command == "/check":
         send_check_picker(chat_id)
     elif command == "/cancel":
@@ -778,10 +896,11 @@ def handle_command(message):
         send_control_message(
             "*Commands*\n\n"
             "/start - show tracker dashboard\n"
-            "/status - show tracker settings\n"
+            "/status - show tracked products\n"
             "/list - list tracked products\n"
             "/add - add an Amazon product URL\n"
             "/remove 2 - remove product number 2\n"
+            "/rename 2 Gaming Keyboard - rename product button/name\n"
             "/check - choose a product to check now\n"
             "/pause - pause scheduled checks\n"
             "/resume - resume scheduled checks"
@@ -817,6 +936,9 @@ def handle_callback(query):
     if data == "check":
         answer_callback_query(callback_id, "Choose a product")
         send_check_picker(chat_id)
+    elif data == "back_start":
+        answer_callback_query(callback_id, "Back")
+        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
     elif data.startswith("check_product:"):
         product_number = int(data.split(":", 1)[1])
         answer_callback_query(callback_id, f"Checking Product {product_number}")
@@ -844,15 +966,17 @@ def handle_callback(query):
         save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Resumed")
         send_control_message("*Tracker resumed.*", chat_id=chat_id, **controls(settings))
+    elif data == "interval_menu":
+        answer_callback_query(callback_id, "Choose interval")
+        send_interval_menu(chat_id)
+    elif data == "alert_menu":
+        answer_callback_query(callback_id, "Choose alert mode")
+        send_alert_menu(chat_id)
     elif data.startswith("interval:"):
         settings["interval"] = max(int(data.split(":", 1)[1]), MIN_CHECK_INTERVAL_MINUTES)
         save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, f"Interval set to {settings['interval']}m")
-        send_control_message(
-            f"*Check interval updated:* `{settings['interval']} minutes`",
-            chat_id=chat_id,
-            **controls(settings),
-        )
+        send_interval_menu(chat_id)
     elif data in ("toggle_notify", "notify:every", "notify:changes"):
         if data == "notify:every":
             settings["notify_only_on_change"] = False
@@ -863,7 +987,7 @@ def handle_callback(query):
         save_user_settings(chat_id, settings)
         mode = "changes only" if settings["notify_only_on_change"] else "every check"
         answer_callback_query(callback_id, f"Notifications: {mode}")
-        send_control_message(f"*Notifications set to:* `{mode}`", chat_id=chat_id, **controls(settings))
+        send_alert_menu(chat_id)
 
 
 def run_telegram_controls():
