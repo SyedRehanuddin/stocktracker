@@ -874,6 +874,7 @@ def scraper_health_summary():
     if not all_products:
         return {
             "healthy": True,
+            "status": "healthy",
             "fresh_product_count": 0,
             "stale_product_count": 0,
             "total_product_count": 0,
@@ -889,12 +890,15 @@ def scraper_health_summary():
     )
     stale_count = len(all_products) - fresh_count
 
-    # One unclear/no-featured-offer product should not make the entire service
-    # look broken. Mark the scraper healthy when most products have recent
-    # clear results, but still expose aggregate stale counts for visibility.
-    healthy = fresh_count > 0 and fresh_count / len(all_products) >= 0.8
+    if fresh_count == len(all_products):
+        status = "healthy"
+    elif fresh_count > 0:
+        status = "partial"
+    else:
+        status = "needs_check"
     return {
-        "healthy": healthy,
+        "healthy": status == "healthy",
+        "status": status,
         "fresh_product_count": fresh_count,
         "stale_product_count": stale_count,
         "total_product_count": len(all_products),
@@ -918,6 +922,7 @@ def public_health_data():
     return {
         "status": "running",
         "scraper_healthy": health_summary["healthy"],
+        "scraper_status": health_summary["status"],
         "approved_user_count": len(approved),
         "pending_user_count": len(pending),
         "total_product_count": total_products,
@@ -935,7 +940,12 @@ def public_health_data():
 @app.get("/dashboard")
 def dashboard():
     data = public_health_data()
-    scraper_label = "Healthy" if data["scraper_healthy"] else "Needs Check"
+    scraper_label = {
+        "healthy": "Healthy",
+        "partial": "Partial",
+        "needs_check": "Needs Check",
+    }.get(data["scraper_status"], "Needs Check")
+    badge_class = "good" if data["scraper_status"] == "healthy" else data["scraper_status"]
     running_label = "Running" if data["status"] == "running" else data["status"].title()
     check_label = "Yes" if data["check_running"] else "No"
     refreshed = now_text()
@@ -955,6 +965,7 @@ def dashboard():
       --muted: #687385;
       --line: #dfe5ee;
       --good: #137a3f;
+      --partial: #8a6d00;
       --warn: #a15c00;
       --accent: #2157d6;
     }}
@@ -966,6 +977,7 @@ def dashboard():
         --muted: #9ba8ba;
         --line: #2d3a4d;
         --good: #44c07a;
+        --partial: #ffd45a;
         --warn: #ffb14a;
         --accent: #83a5ff;
       }}
@@ -1012,7 +1024,8 @@ def dashboard():
       font-weight: 700;
       white-space: nowrap;
     }}
-    .badge.warn {{ color: var(--warn); }}
+    .badge.partial {{ color: var(--partial); }}
+    .badge.needs_check {{ color: var(--warn); }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1075,7 +1088,7 @@ def dashboard():
         <h1>Stock Tracker Dashboard</h1>
         <p class="subtle">Public service health. Product and user details are hidden.</p>
       </div>
-      <div class="badge {'warn' if not data['scraper_healthy'] else ''}">{scraper_label}</div>
+      <div class="badge {badge_class}">{scraper_label}</div>
     </header>
 
     <section class="grid" aria-label="Service metrics">
