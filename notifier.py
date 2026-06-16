@@ -9,12 +9,18 @@ API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 def build_buttons(
     paused=False,
     notify_only_on_change=False,
+    interval=None,
     product_url=None,
     extra_rows=None,
 ):
-    pause_text = "Resume" if paused else "Pause"
-    pause_action = "resume" if paused else "pause"
-    notify_text = "Notify: changes only" if notify_only_on_change else "Notify: every check"
+    pause_text = "⏸ Pause" if not paused else "✅ ⏸ Pause"
+    resume_text = "✅ ▶️ Resume" if not paused else "▶️ Resume"
+    every_check_text = "✅ 🔔 Every Check" if not notify_only_on_change else "🔔 Every Check"
+    changes_only_text = "🔕 Changes Only" if not notify_only_on_change else "✅ 🔕 Changes Only"
+    interval_texts = {
+        minutes: f"✅ {minutes}m" if interval == minutes else f"{minutes}m"
+        for minutes in (15, 30, 60)
+    }
     rows = []
     if product_url:
         rows.append([{"text": "Buy on Amazon", "url": product_url}])
@@ -24,21 +30,27 @@ def build_buttons(
     rows.extend(
         [
             [
-                {"text": "Check Now", "callback_data": "check"},
-                {"text": "Status", "callback_data": "status"},
+                {"text": "🔍 Check Now", "callback_data": "check"},
+                {"text": "📋 Status", "callback_data": "status"},
             ],
             [
-                {"text": "Add Product", "callback_data": "add"},
-                {"text": "List Products", "callback_data": "list"},
+                {"text": "➕ Add Product", "callback_data": "add"},
+                {"text": "📦 List Products", "callback_data": "list"},
             ],
-            [{"text": "Cancel Check", "callback_data": "cancel_check"}],
-            [{"text": pause_text, "callback_data": pause_action}],
             [
-                {"text": "15m", "callback_data": "interval:15"},
-                {"text": "30m", "callback_data": "interval:30"},
-                {"text": "60m", "callback_data": "interval:60"},
+                {"text": pause_text, "callback_data": "pause"},
+                {"text": resume_text, "callback_data": "resume"},
             ],
-            [{"text": notify_text, "callback_data": "toggle_notify"}],
+            [
+                {"text": interval_texts[15], "callback_data": "interval:15"},
+                {"text": interval_texts[30], "callback_data": "interval:30"},
+                {"text": interval_texts[60], "callback_data": "interval:60"},
+            ],
+            [
+                {"text": every_check_text, "callback_data": "notify:every"},
+                {"text": changes_only_text, "callback_data": "notify:changes"},
+            ],
+            [{"text": "❌ Cancel Check", "callback_data": "cancel_check"}],
         ]
     )
 
@@ -61,6 +73,7 @@ def send_telegram_message(
     chat_id=None,
     paused=False,
     notify_only_on_change=False,
+    interval=None,
     product_url=None,
     extra_rows=None,
     reply_markup=None,
@@ -69,6 +82,7 @@ def send_telegram_message(
         reply_markup = build_buttons(
             paused=paused,
             notify_only_on_change=notify_only_on_change,
+            interval=interval,
             product_url=product_url,
             extra_rows=extra_rows,
         )

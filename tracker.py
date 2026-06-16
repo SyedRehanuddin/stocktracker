@@ -12,6 +12,7 @@ from config import PRODUCT_URL, validate_config
 from notifier import send_alert, send_status_alert
 
 REQUEST_TIMEOUT = 25
+PRODUCT_TITLE_LIMIT = 500
 
 # Optional residential/proxy support. No effect unless PROXY_URL is set.
 PROXY_URL = os.getenv("PROXY_URL")
@@ -98,7 +99,11 @@ def extract_product_title(page_html):
     title = html.unescape(title)
     title = re.sub(r"\s+", " ", title).strip()
     title = re.sub(r"\s*:\s*Amazon\.in.*$", "", title, flags=re.IGNORECASE)
-    return title[:180] or None
+    if len(title) <= PRODUCT_TITLE_LIMIT:
+        return title or None
+
+    trimmed = title[: PRODUCT_TITLE_LIMIT - 3].rsplit(" ", 1)[0].strip()
+    return f"{trimmed}..." if trimmed else title[:PRODUCT_TITLE_LIMIT]
 
 
 def extract_price(page_html):

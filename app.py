@@ -48,6 +48,7 @@ check_lock = threading.Lock()
 schedule_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+PRODUCT_NAME_LIMIT = 500
 
 state = {
     "check_running": False,
@@ -64,7 +65,12 @@ def clean_url(url):
 def clean_product_name(name):
     if not name:
         return None
-    return re.sub(r"[*_`\[\]]", "", name).strip()[:180] or None
+    cleaned = re.sub(r"[*_`\[\]]", "", name).strip()
+    if len(cleaned) <= PRODUCT_NAME_LIMIT:
+        return cleaned or None
+
+    trimmed = cleaned[: PRODUCT_NAME_LIMIT - 3].rsplit(" ", 1)[0].strip()
+    return f"{trimmed}..." if trimmed else cleaned[:PRODUCT_NAME_LIMIT]
 
 
 def now_ist():
@@ -185,6 +191,7 @@ def controls(settings):
     return {
         "paused": settings["paused"],
         "notify_only_on_change": settings["notify_only_on_change"],
+        "interval": settings["interval"],
     }
 
 
@@ -832,8 +839,13 @@ def handle_callback(query):
             chat_id=chat_id,
             **controls(settings),
         )
-    elif data == "toggle_notify":
-        settings["notify_only_on_change"] = not settings["notify_only_on_change"]
+    elif data in ("toggle_notify", "notify:every", "notify:changes"):
+        if data == "notify:every":
+            settings["notify_only_on_change"] = False
+        elif data == "notify:changes":
+            settings["notify_only_on_change"] = True
+        else:
+            settings["notify_only_on_change"] = not settings["notify_only_on_change"]
         save_user_settings(chat_id, settings)
         mode = "changes only" if settings["notify_only_on_change"] else "every check"
         answer_callback_query(callback_id, f"Notifications: {mode}")
