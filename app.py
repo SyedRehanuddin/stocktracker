@@ -287,23 +287,20 @@ def clear_check_state_only():
     state["check_started_at"] = None
 
 
+def start_message(chat_id):
+    return (
+        "*Stock Tracker*\n\n"
+        f"Products: `{len(get_user_products(chat_id))}`\n"
+        "Use the buttons below to manage your tracker."
+    )
+
+
 def control_status_message(chat_id):
-    settings = get_user_settings(chat_id)
-    mode = "changes only" if settings["notify_only_on_change"] else "every check"
-    paused = "yes" if settings["paused"] else "no"
-    checking = "yes" if state["check_running"] else "no"
-    age = int(check_age_seconds())
     products = product_summary_lines(chat_id)
     product_text = "\n\n".join(products) if products else "No products yet."
 
     return (
-        "*Tracker status*\n\n"
-        f"Products: `{len(get_user_products(chat_id))}`\n"
-        f"Paused: `{paused}`\n"
-        f"Check running: `{checking}`\n"
-        f"Check age: `{age} seconds`\n"
-        f"Interval: `{settings['interval']} minutes`\n"
-        f"Notifications: `{mode}`\n\n"
+        "*Tracked products*\n\n"
         "*Products*\n"
         + product_text
     )
@@ -311,14 +308,16 @@ def control_status_message(chat_id):
 
 def product_check_rows(chat_id):
     rows = []
-    row = []
     for index, _product in enumerate(get_user_products(chat_id), start=1):
-        row.append({"text": f"Check {index}", "callback_data": f"check_product:{index}"})
-        if len(row) == 2:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
+        rows.append(
+            [
+                {
+                    "text": f"🔍 Check Product {index}",
+                    "callback_data": f"check_product:{index}",
+                }
+            ]
+        )
+    rows.append([{"text": "❌ Cancel", "callback_data": "cancel_check"}])
     return rows
 
 
@@ -330,12 +329,10 @@ def check_picker_message(chat_id):
 
 
 def send_check_picker(chat_id):
-    settings = get_user_settings(chat_id)
-    send_control_message(
+    send_telegram_message(
         check_picker_message(chat_id),
         chat_id=chat_id,
-        extra_rows=product_check_rows(chat_id),
-        **controls(settings),
+        reply_markup={"inline_keyboard": product_check_rows(chat_id)},
     )
 
 
@@ -354,7 +351,14 @@ def should_send_status(settings, product, available, previous_status):
     return True
 
 
-def apply_product_result(chat_id, products, product, result, force_notify=False):
+def apply_product_result(
+    chat_id,
+    products,
+    product,
+    result,
+    force_notify=False,
+    send_alert=True,
+):
     settings = get_user_settings(chat_id)
     if isinstance(result, dict):
         available = result.get("available")
@@ -374,7 +378,9 @@ def apply_product_result(chat_id, products, product, result, force_notify=False)
     if available is True or available is False:
         product["last_success_epoch"] = now_epoch()
 
-    send_now = force_notify or should_send_status(settings, product, available, previous_status)
+    send_now = send_alert and (
+        force_notify or should_send_status(settings, product, available, previous_status)
+    )
     if send_now:
         index = product_number(products, product)
         notification_name = (
@@ -396,7 +402,7 @@ def apply_product_result(chat_id, products, product, result, force_notify=False)
     return available
 
 
-def run_single_product_check(chat_id, product_index, force_notify=False):
+def run_single_product_check(chat_id, product_index, force_notify=False, send_alert=True):
     products = get_user_products(chat_id)
     if product_index < 0 or product_index >= len(products):
         return None
@@ -405,7 +411,14 @@ def run_single_product_check(chat_id, product_index, force_notify=False):
     print(f"Checking {chat_id} {product['name']}: {product['url']}", flush=True)
     results = check_urls([product["url"]])
     result = results[0] if results else {"available": None, "title": None}
-    apply_product_result(chat_id, products, product, result, force_notify=force_notify)
+    apply_product_result(
+        chat_id,
+        products,
+        product,
+        result,
+        force_notify=force_notify,
+        send_alert=send_alert,
+    )
     save_user_products(chat_id, products)
     return product
 
@@ -440,7 +453,8 @@ def run_single_product_check_async(chat_id, product_index):
             checked_product = run_single_product_check(
                 chat_id,
                 product_index,
-                force_notify=True,
+                force_notify=False,
+                send_alert=False,
             )
             if checked_product:
                 send_control_message(
@@ -591,7 +605,7 @@ def approval_buttons(chat_id):
 def request_access(message):
     chat_id = chat_id_from_message(message)
     if is_approved_user(chat_id):
-        send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
+        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
         return
     if is_rejected_user(chat_id):
         send_telegram_message("*Access denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
@@ -709,7 +723,7 @@ def handle_command(message):
         if is_admin(chat_id):
             bootstrap_admin()
         if ensure_authorized(chat_id):
-            send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
+            send_control_message(start_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
         else:
             request_access(message)
         return
