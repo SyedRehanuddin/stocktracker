@@ -250,6 +250,22 @@ def product_exists(products, url):
     return any(product["url"] == cleaned for product in products)
 
 
+def reindex_button_names_after_remove(settings, removed_number):
+    button_names = settings.get("button_names") or {}
+    reindexed = {}
+    for key, value in button_names.items():
+        try:
+            index = int(key)
+        except (TypeError, ValueError):
+            continue
+
+        if index < removed_number:
+            reindexed[str(index)] = value
+        elif index > removed_number:
+            reindexed[str(index - 1)] = value
+    settings["button_names"] = reindexed
+
+
 def max_products_for(chat_id):
     return None if is_admin(chat_id) else MAX_PRODUCTS_PER_USER
 
@@ -281,6 +297,9 @@ def remove_product(chat_id, number_text):
 
     removed = products.pop(number - 1)
     save_user_products(chat_id, products)
+    settings = get_user_settings(chat_id)
+    reindex_button_names_after_remove(settings, number)
+    save_user_settings(chat_id, settings)
     return True, f"Removed {product_display_name(removed)}."
 
 
@@ -404,6 +423,36 @@ def send_check_picker(chat_id):
         check_picker_message(chat_id),
         chat_id=chat_id,
         reply_markup={"inline_keyboard": product_check_rows(chat_id)},
+    )
+
+
+def product_delete_rows(chat_id):
+    rows = []
+    for index, product in enumerate(get_user_products(chat_id), start=1):
+        rows.append(
+            [
+                {
+                    "text": f"🗑 Delete {product_button_name(chat_id, index, product)}",
+                    "callback_data": f"delete_product:{index}",
+                }
+            ]
+        )
+    rows.append([{"text": "⬅️ Back", "callback_data": "back_start"}])
+    return rows
+
+
+def delete_picker_message(chat_id):
+    products = product_summary_lines(chat_id)
+    if not products:
+        return "*Choose Product To Delete*\n\nNo products yet. Use `/add` to add one."
+    return "*Choose Product To Delete*\n\n" + "\n\n".join(products)
+
+
+def send_delete_picker(chat_id):
+    send_telegram_message(
+        delete_picker_message(chat_id),
+        chat_id=chat_id,
+        reply_markup={"inline_keyboard": product_delete_rows(chat_id)},
     )
 
 
@@ -889,6 +938,8 @@ def handle_command(message):
             send_back_message(f"*{message}*", chat_id=chat_id)
     elif command == "/check":
         send_check_picker(chat_id)
+    elif command == "/delete":
+        send_delete_picker(chat_id)
     elif command == "/cancel":
         clear_check_state_only()
         send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
@@ -923,6 +974,7 @@ def handle_command(message):
             "/remove 2 - remove product number 2\n"
             "/rename 2 Gaming Keyboard - rename product button/name\n"
             "/check - choose a product to check now\n"
+            "/delete - choose a product to delete\n"
             "/pause - pause scheduled checks\n"
             "/resume - resume scheduled checks"
             f"{extra}",
@@ -956,6 +1008,9 @@ def handle_callback(query):
     if data == "check":
         answer_callback_query(callback_id, "Choose a product")
         send_check_picker(chat_id)
+    elif data == "delete":
+        answer_callback_query(callback_id, "Choose product to delete")
+        send_delete_picker(chat_id)
     elif data == "back_start":
         answer_callback_query(callback_id, "Back")
         send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
@@ -963,6 +1018,11 @@ def handle_callback(query):
         product_number = int(data.split(":", 1)[1])
         answer_callback_query(callback_id, f"Checking Product {product_number}")
         run_single_product_check_async(chat_id, product_number - 1)
+    elif data.startswith("delete_product:"):
+        product_number = data.split(":", 1)[1]
+        ok, message = remove_product(chat_id, product_number)
+        answer_callback_query(callback_id, "Deleted" if ok else "Not deleted")
+        send_back_message(f"*{message}*", chat_id=chat_id)
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
         send_back_message(control_status_message(chat_id), chat_id=chat_id)
