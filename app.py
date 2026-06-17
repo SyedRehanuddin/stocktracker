@@ -321,7 +321,12 @@ def rename_product(chat_id, number_text, new_name):
     button_names = settings.setdefault("button_names", {})
     button_names[str(number)] = cleaned_name
     save_user_settings(chat_id, settings)
-    return True, f"Renamed check button {number} to {cleaned_name}."
+    return True, (
+        f"*Product {number}* renamed to `{cleaned_name}`\n\n"
+        "This name now appears on:\n"
+        f"— 🔍 Check Product {number} button as `{cleaned_name}`\n"
+        f"— 🗑 Delete Product {number} button as `{cleaned_name}`"
+    )
 
 
 def product_list_message(chat_id):
