@@ -118,24 +118,24 @@ def send_status_alert(
     chat_id=None,
     **controls,
 ):
-    price_line = f"\nPrice: `{price}`\n" if price else ""
+    price_line = f"\n*Price:* `{price}`\n" if price else ""
     if available is True:
         msg = (
-            f"*{product_name} is available!*\n\n"
+            f"*{product_name} Is Available!*\n\n"
             f"{price_line}"
             "Amazon is showing Buy/Add to Cart options.\n\n"
             "Go fast before it's gone."
         )
     elif available is False:
         msg = (
-            f"*{product_name}: unavailable*\n\n"
+            f"*{product_name}: Unavailable*\n\n"
             f"{price_line}"
             "Amazon is still showing this product as out of stock.\n\n"
             "I will keep checking."
         )
     else:
         msg = (
-            f"*{product_name}: unclear*\n\n"
+            f"*{product_name}: Unclear*\n\n"
             f"{price_line}"
             "Amazon did not show a clear stock status this time.\n\n"
             "I will retry on the next check."

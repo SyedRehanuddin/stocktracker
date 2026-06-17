@@ -152,9 +152,12 @@ def make_product(url, name=None, index=1):
 
 
 def normalize_product(product, index):
+    name = clean_product_name(product.get("name")) or f"Product {index}"
     return {
         "url": clean_url(product["url"]),
-        "name": clean_product_name(product.get("name")) or f"Product {index}",
+        "name": name,
+        "source_name": clean_product_name(product.get("source_name")) or name,
+        "custom_name": clean_product_name(product.get("custom_name")),
         "last_status": product.get("last_status"),
         "last_checked": product.get("last_checked"),
         "last_success_epoch": product.get("last_success_epoch"),
@@ -198,10 +201,10 @@ def product_status_block(index, product):
     price = product.get("last_price") or "not found"
     return (
         f"*Product {index}*\n"
-        f"Name: {product_display_name(product)}\n"
-        f"Status: `{product_status_label(product)}`\n"
-        f"Price: `{price}`\n"
-        f"Last checked: `{checked}`"
+        f"*Name:* {product_display_name(product)}\n"
+        f"*Status:* `{product_status_label(product)}`\n"
+        f"*Price:* `{price}`\n"
+        f"*Last checked:* `{checked}`"
     )
 
 
@@ -305,9 +308,9 @@ def rename_product(chat_id, number_text, new_name):
 def product_list_message(chat_id):
     products = get_user_products(chat_id)
     if not products:
-        return "*Tracked products*\n\nNo products yet. Use `/add` to add one."
+        return "*Tracked Products*\n\nNo products yet. Use `/add` to add one."
 
-    lines = ["*Tracked products*"]
+    lines = ["*Tracked Products*"]
     for index, product in enumerate(products, start=1):
         lines.append(f"\n{product_status_block(index, product)}")
         lines.append(f"[Buy on Amazon]({product['url']})")
@@ -358,7 +361,7 @@ def clear_check_state_only():
 def start_message(chat_id):
     return (
         "*Stock Tracker*\n\n"
-        f"Products: `{len(get_user_products(chat_id))}`\n"
+        f"*Products:* `{len(get_user_products(chat_id))}`\n"
         "Use the buttons below to manage your tracker."
     )
 
@@ -368,7 +371,7 @@ def control_status_message(chat_id):
     product_text = "\n\n".join(products) if products else "No products yet."
 
     return (
-        "*Tracked products*\n\n"
+        "*Tracked Products*\n\n"
         "*Products*\n"
         + product_text
     )
@@ -392,8 +395,8 @@ def product_check_rows(chat_id):
 def check_picker_message(chat_id):
     products = product_summary_lines(chat_id)
     if not products:
-        return "*Choose product to check*\n\nNo products yet. Use `/add` to add one."
-    return "*Choose product to check*\n\n" + "\n\n".join(products)
+        return "*Choose Product To Check*\n\nNo products yet. Use `/add` to add one."
+    return "*Choose Product To Check*\n\n" + "\n\n".join(products)
 
 
 def send_check_picker(chat_id):
@@ -406,8 +409,8 @@ def send_check_picker(chat_id):
 
 def interval_menu_message(settings):
     return (
-        "*How often should I check?*\n\n"
-        f"Current: `{settings['interval']} minutes`"
+        "*How Often Should I Check?*\n\n"
+        f"*Current:* `{settings['interval']} minutes`"
     )
 
 
@@ -437,8 +440,8 @@ def send_interval_menu(chat_id):
 def alert_menu_message(settings):
     mode = "only when stock changes" if settings["notify_only_on_change"] else "after every check"
     return (
-        "*Alert settings*\n\n"
-        f"Current: `Alert me {mode}`"
+        "*Alert Settings*\n\n"
+        f"*Current:* `Alert me {mode}`"
     )
 
 
@@ -555,7 +558,7 @@ def single_check_summary_message(chat_id, product):
     products = get_user_products(chat_id)
     index = product_number(products, product) or "?"
     return (
-        "*Check finished*\n\n"
+        "*Check Finished*\n\n"
         f"{product_status_block(index, product)}\n"
         f"[Buy on Amazon]({product['url']})"
     )
@@ -564,17 +567,17 @@ def single_check_summary_message(chat_id, product):
 def run_single_product_check_async(chat_id, product_index):
     settings = get_user_settings(chat_id)
     if not begin_check():
-        send_control_message("*A check is already running.*", chat_id=chat_id, **controls(settings))
+        send_control_message("*Check Already Running.*", chat_id=chat_id, **controls(settings))
         return
 
     products = get_user_products(chat_id)
     if product_index < 0 or product_index >= len(products):
         finish_check()
-        send_control_message("*That product number is not in the list.*", chat_id=chat_id, **controls(settings))
+        send_control_message("*Invalid Product Number.*\n\nThat product number is not in the list.", chat_id=chat_id, **controls(settings))
         return
 
     product = products[product_index]
-    send_control_message(f"*Check started:* {product_display_name(product)}", chat_id=chat_id, **controls(settings))
+    send_control_message(f"*Check Started:* {product_display_name(product)}", chat_id=chat_id, **controls(settings))
 
     def worker():
         try:
@@ -592,7 +595,7 @@ def run_single_product_check_async(chat_id, product_index):
                 )
         except Exception as e:
             print(f"Manual check failed: {e}", flush=True)
-            send_control_message(f"*Check failed:* `{e}`", chat_id=chat_id, **controls(settings))
+            send_control_message(f"*Check Failed:* `{e}`", chat_id=chat_id, **controls(settings))
         finally:
             finish_check()
 
@@ -736,26 +739,26 @@ def request_access(message):
         send_control_message(start_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
         return
     if is_rejected_user(chat_id):
-        send_telegram_message("*Access denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        send_telegram_message("*Access Denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
         return
     if is_pending_user(chat_id):
-        send_telegram_message("*Access request already sent to admin.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        send_telegram_message("*Access Request Already Sent To Admin.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
         return
     if approved_friend_count() >= MAX_USERS:
-        send_telegram_message("*Access is full right now.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        send_telegram_message("*Access Is Full Right Now.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
         return
 
     profile = profile_from_message(message)
     save_user_profile(chat_id, profile)
     add_pending_user(chat_id)
-    send_telegram_message("*Access request sent to admin. Please wait.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+    send_telegram_message("*Access Request Sent To Admin.*\n\nPlease wait.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
 
     username = f"@{profile['username']}" if profile.get("username") else "none"
     admin_message = (
-        "*New access request*\n\n"
-        f"Name: `{display_name(profile)}`\n"
-        f"Username: `{username}`\n"
-        f"Chat ID: `{chat_id}`"
+        "*New Access Request*\n\n"
+        f"*Name:* `{display_name(profile)}`\n"
+        f"*Username:* `{username}`\n"
+        f"*Chat ID:* `{chat_id}`"
     )
     send_telegram_message(
         admin_message,
@@ -766,7 +769,7 @@ def request_access(message):
 
 def approve_user(chat_id):
     if approved_friend_count() >= MAX_USERS and not is_approved_user(chat_id):
-        send_telegram_message("*User limit reached. Remove a user first.*", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+        send_telegram_message("*User Limit Reached.*\n\nRemove a user first.", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
         return
     profile = load_user_profile(chat_id) or {"chat_id": str(chat_id)}
     profile.update(
@@ -782,8 +785,8 @@ def approve_user(chat_id):
         save_user_settings(chat_id, default_settings())
     if not load_user_products(chat_id):
         save_user_products(chat_id, [])
-    send_telegram_message("*Access approved. Use /start to open tracker.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-    send_telegram_message(f"*Approved user:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+    send_telegram_message("*Access Approved.*\n\nUse /start to open tracker.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+    send_telegram_message(f"*Approved User:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
 
 
 def reject_user(chat_id):
@@ -792,8 +795,8 @@ def reject_user(chat_id):
     profile["rejected_at"] = now_text()
     save_user_profile(chat_id, profile)
     add_rejected_user(chat_id)
-    send_telegram_message("*Access denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-    send_telegram_message(f"*Rejected user:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+    send_telegram_message("*Access Denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+    send_telegram_message(f"*Rejected User:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
 
 
 def users_message():
@@ -801,16 +804,16 @@ def users_message():
     pending = list_pending_users()
     rejected = list_rejected_users()
     lines = ["*Users*"]
-    lines.append(f"\nApproved: `{len(approved)}`")
+    lines.append(f"\n*Approved:* `{len(approved)}`")
     for chat_id in approved:
         profile = load_user_profile(chat_id)
         label = "admin" if is_admin(chat_id) else "user"
         lines.append(f"- `{chat_id}` ({label}) {display_name(profile)}")
-    lines.append(f"\nPending: `{len(pending)}`")
+    lines.append(f"\n*Pending:* `{len(pending)}`")
     for chat_id in pending:
         profile = load_user_profile(chat_id)
         lines.append(f"- `{chat_id}` {display_name(profile)}")
-    lines.append(f"\nRejected: `{len(rejected)}`")
+    lines.append(f"\n*Rejected:* `{len(rejected)}`")
     for chat_id in rejected:
         profile = load_user_profile(chat_id)
         lines.append(f"- `{chat_id}` {display_name(profile)}")
@@ -824,7 +827,7 @@ def ensure_authorized(chat_id):
 def prompt_for_url(chat_id):
     state["awaiting_product_url"].add(str(chat_id))
     send_back_message(
-        "*Send me an Amazon product link.*\n\nI will add it to your tracker.",
+        "*Send Me An Amazon Product Link.*\n\nI will add it to your tracker.",
         chat_id=chat_id,
     )
 
@@ -832,7 +835,7 @@ def prompt_for_url(chat_id):
 def handle_product_url(chat_id, text):
     match = URL_RE.search(text)
     if not match:
-        send_back_message("I could not find a URL. Send the Amazon product link.", chat_id=chat_id)
+        send_back_message("*URL Not Found.*\n\nSend the Amazon product link.", chat_id=chat_id)
         return
 
     ok, message = add_product(chat_id, match.group(0))
@@ -856,7 +859,7 @@ def handle_command(message):
         return
 
     if not ensure_authorized(chat_id):
-        send_telegram_message("*Access not approved yet.*\n\nSend /start to request access.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        send_telegram_message("*Access Not Approved Yet.*\n\nSend /start to request access.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
         return
 
     settings = get_user_settings(chat_id)
@@ -871,14 +874,14 @@ def handle_command(message):
             prompt_for_url(chat_id)
     elif command == "/remove":
         if len(parts) < 2:
-            send_back_message("Use `/remove 2` with the number from `/list`.", chat_id=chat_id)
+            send_back_message("*Usage:* `/remove 2`\n\nUse the number from `/list`.", chat_id=chat_id)
         else:
             ok, message = remove_product(chat_id, parts[1])
             send_back_message(f"*{message}*", chat_id=chat_id)
     elif command == "/rename":
         if len(parts) < 3:
             send_back_message(
-                "Use `/rename 2 Gaming Keyboard` with the product number and new name.",
+                "*Usage:* `/rename 2 Gaming Keyboard`\n\nUse the product number and new name.",
                 chat_id=chat_id,
             )
         else:
@@ -892,23 +895,23 @@ def handle_command(message):
     elif command == "/pause":
         settings["paused"] = True
         save_user_settings(chat_id, settings)
-        send_back_message("*Tracker paused.*", chat_id=chat_id)
+        send_back_message("*Tracker Paused.*", chat_id=chat_id)
     elif command == "/resume":
         settings["paused"] = False
         save_user_settings(chat_id, settings)
-        send_back_message("*Tracker resumed.*", chat_id=chat_id)
+        send_back_message("*Tracker Resumed.*", chat_id=chat_id)
     elif command == "/users" and is_admin(chat_id):
         send_telegram_message(users_message(), chat_id=chat_id)
     elif command == "/removeuser" and is_admin(chat_id):
         if len(parts) < 2:
-            send_telegram_message("Use `/removeuser 123456789`.", chat_id=chat_id)
+            send_telegram_message("*Usage:* `/removeuser 123456789`.", chat_id=chat_id)
         else:
             remove_approved_user(parts[1])
             profile = load_user_profile(parts[1]) or {"chat_id": parts[1]}
             profile["status"] = "removed"
             profile["removed_at"] = now_text()
             save_user_profile(parts[1], profile)
-            send_telegram_message(f"*Removed user access:* `{parts[1]}`", chat_id=chat_id)
+            send_telegram_message(f"*Removed User Access:* `{parts[1]}`", chat_id=chat_id)
     elif command == "/help":
         extra = "\n/users - list users\n/removeuser 123 - remove user access" if is_admin(chat_id) else ""
         send_back_message(
