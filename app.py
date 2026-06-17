@@ -206,10 +206,17 @@ def controls(settings):
     }
 
 
+def back_markup():
+    return {"inline_keyboard": [[{"text": "⬅️ Back", "callback_data": "back_start"}]]}
+
+
+def send_back_message(message, chat_id):
+    send_telegram_message(message, chat_id=chat_id, reply_markup=back_markup())
+
+
 def product_display_name(product):
     return (
-        clean_product_name(product.get("custom_name"))
-        or clean_product_name(product.get("source_name"))
+        clean_product_name(product.get("source_name"))
         or clean_product_name(product.get("name"))
         or "Product"
     )
@@ -276,9 +283,8 @@ def rename_product(chat_id, number_text, new_name):
         return False, "Send a name after the product number. Example: `/rename 2 Gaming Keyboard`."
 
     products[number - 1]["custom_name"] = cleaned_name
-    products[number - 1]["name"] = cleaned_name
     save_user_products(chat_id, products)
-    return True, f"Renamed Product {number} to {cleaned_name}."
+    return True, f"Renamed check button {number} to {cleaned_name}."
 
 
 def product_list_message(chat_id):
@@ -364,7 +370,7 @@ def product_check_rows(chat_id):
                 }
             ]
         )
-    rows.append([{"text": "❌ Cancel", "callback_data": "cancel_check"}])
+    rows.append([{"text": "⬅️ Back", "callback_data": "cancel_check"}])
     return rows
 
 
@@ -803,22 +809,21 @@ def ensure_authorized(chat_id):
 
 def prompt_for_url(chat_id):
     state["awaiting_product_url"].add(str(chat_id))
-    send_control_message(
+    send_back_message(
         "*Send me an Amazon product link.*\n\nI will add it to your tracker.",
         chat_id=chat_id,
-        **controls(get_user_settings(chat_id)),
     )
 
 
 def handle_product_url(chat_id, text):
     match = URL_RE.search(text)
     if not match:
-        send_control_message("I could not find a URL. Send the Amazon product link.", chat_id=chat_id, **controls(get_user_settings(chat_id)))
+        send_back_message("I could not find a URL. Send the Amazon product link.", chat_id=chat_id)
         return
 
     ok, message = add_product(chat_id, match.group(0))
     state["awaiting_product_url"].discard(str(chat_id))
-    send_control_message(f"*{message}*\n\nUse `/list` to see tracked products.", chat_id=chat_id, **controls(get_user_settings(chat_id)))
+    send_back_message(f"*{message}*\n\nUse `/list` to see tracked products.", chat_id=chat_id)
 
 
 def handle_command(message):
@@ -842,9 +847,9 @@ def handle_command(message):
 
     settings = get_user_settings(chat_id)
     if command == "/status":
-        send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_back_message(control_status_message(chat_id), chat_id=chat_id)
     elif command == "/list":
-        send_control_message(product_list_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_back_message(product_list_message(chat_id), chat_id=chat_id)
     elif command == "/add":
         if len(parts) > 1:
             handle_product_url(chat_id, " ".join(parts[1:]))
@@ -852,33 +857,32 @@ def handle_command(message):
             prompt_for_url(chat_id)
     elif command == "/remove":
         if len(parts) < 2:
-            send_control_message("Use `/remove 2` with the number from `/list`.", chat_id=chat_id, **controls(settings))
+            send_back_message("Use `/remove 2` with the number from `/list`.", chat_id=chat_id)
         else:
             ok, message = remove_product(chat_id, parts[1])
-            send_control_message(f"*{message}*", chat_id=chat_id, **controls(settings))
+            send_back_message(f"*{message}*", chat_id=chat_id)
     elif command == "/rename":
         if len(parts) < 3:
-            send_control_message(
+            send_back_message(
                 "Use `/rename 2 Gaming Keyboard` with the product number and new name.",
                 chat_id=chat_id,
-                **controls(settings),
             )
         else:
             ok, message = rename_product(chat_id, parts[1], " ".join(parts[2:]))
-            send_control_message(f"*{message}*", chat_id=chat_id, **controls(settings))
+            send_back_message(f"*{message}*", chat_id=chat_id)
     elif command == "/check":
         send_check_picker(chat_id)
     elif command == "/cancel":
         clear_check_state_only()
-        send_control_message("*Check state cleared.*", chat_id=chat_id, **controls(settings))
+        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
     elif command == "/pause":
         settings["paused"] = True
         save_user_settings(chat_id, settings)
-        send_control_message("*Tracker paused.*", chat_id=chat_id, **controls(settings))
+        send_back_message("*Tracker paused.*", chat_id=chat_id)
     elif command == "/resume":
         settings["paused"] = False
         save_user_settings(chat_id, settings)
-        send_control_message("*Tracker resumed.*", chat_id=chat_id, **controls(settings))
+        send_back_message("*Tracker resumed.*", chat_id=chat_id)
     elif command == "/users" and is_admin(chat_id):
         send_telegram_message(users_message(), chat_id=chat_id)
     elif command == "/removeuser" and is_admin(chat_id):
@@ -893,7 +897,7 @@ def handle_command(message):
             send_telegram_message(f"*Removed user access:* `{parts[1]}`", chat_id=chat_id)
     elif command == "/help":
         extra = "\n/users - list users\n/removeuser 123 - remove user access" if is_admin(chat_id) else ""
-        send_control_message(
+        send_back_message(
             "*Commands*\n\n"
             "/start - show tracker dashboard\n"
             "/status - show tracked products\n"
@@ -906,7 +910,6 @@ def handle_command(message):
             "/resume - resume scheduled checks"
             f"{extra}",
             chat_id=chat_id,
-            **controls(settings),
         )
 
 
@@ -945,27 +948,27 @@ def handle_callback(query):
         run_single_product_check_async(chat_id, product_number - 1)
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
-        send_control_message(control_status_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_back_message(control_status_message(chat_id), chat_id=chat_id)
     elif data == "cancel_check":
         clear_check_state_only()
-        answer_callback_query(callback_id, "Check state cleared")
-        send_control_message("*Check state cleared.*", chat_id=chat_id, **controls(settings))
+        answer_callback_query(callback_id, "Back")
+        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
     elif data == "add":
         answer_callback_query(callback_id, "Send a product link")
         prompt_for_url(chat_id)
     elif data == "list":
         answer_callback_query(callback_id, "Sending product list")
-        send_control_message(product_list_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_back_message(product_list_message(chat_id), chat_id=chat_id)
     elif data == "pause":
         settings["paused"] = True
         save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Paused")
-        send_control_message("*Tracker paused.*", chat_id=chat_id, **controls(settings))
+        send_back_message("*Tracker paused.*", chat_id=chat_id)
     elif data == "resume":
         settings["paused"] = False
         save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Resumed")
-        send_control_message("*Tracker resumed.*", chat_id=chat_id, **controls(settings))
+        send_back_message("*Tracker resumed.*", chat_id=chat_id)
     elif data == "interval_menu":
         answer_callback_query(callback_id, "Choose interval")
         send_interval_menu(chat_id)
