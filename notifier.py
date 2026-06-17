@@ -178,23 +178,32 @@ def get_updates(offset=None):
 
 
 def set_bot_commands():
+    user_commands = [
+        {"command": "start", "description": "Show tracker dashboard"},
+        {"command": "status", "description": "Show current stock status"},
+        {"command": "check", "description": "Choose a product to check now"},
+        {"command": "add", "description": "Add an Amazon product URL"},
+        {"command": "list", "description": "List tracked products"},
+        {"command": "rename", "description": "Rename a product by number"},
+        {"command": "delete", "description": "Choose a product to delete"},
+        {"command": "cancel", "description": "Cancel stuck check state"},
+        {"command": "pause", "description": "Pause scheduled checks"},
+        {"command": "resume", "description": "Resume scheduled checks"},
+        {"command": "help", "description": "Show commands and buttons"},
+    ]
+    admin_commands = user_commands + [
+        {"command": "users", "description": "Admin: list users"},
+        {"command": "removeuser", "description": "Admin: remove user access"},
+    ]
+
+    telegram_request(
+        "setMyCommands",
+        {"commands": user_commands},
+    )
     telegram_request(
         "setMyCommands",
         {
-            "commands": [
-                {"command": "start", "description": "Show tracker dashboard"},
-                {"command": "status", "description": "Show current stock status"},
-                {"command": "check", "description": "Choose a product to check now"},
-                {"command": "add", "description": "Add an Amazon product URL"},
-                {"command": "list", "description": "List tracked products"},
-                {"command": "rename", "description": "Rename a product by number"},
-                {"command": "delete", "description": "Choose a product to delete"},
-                {"command": "cancel", "description": "Cancel stuck check state"},
-                {"command": "pause", "description": "Pause scheduled checks"},
-                {"command": "resume", "description": "Resume scheduled checks"},
-                {"command": "users", "description": "Admin: list users"},
-                {"command": "removeuser", "description": "Admin: remove user access"},
-                {"command": "help", "description": "Show commands and buttons"},
-            ]
+            "commands": admin_commands,
+            "scope": {"type": "chat", "chat_id": ADMIN_CHAT_ID},
         },
     )

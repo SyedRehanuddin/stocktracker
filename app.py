@@ -3,7 +3,9 @@ import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
+import requests
 import schedule
 from flask import Flask
 
@@ -47,8 +49,19 @@ app = Flask(__name__)
 check_lock = threading.Lock()
 schedule_lock = threading.Lock()
 IST = timezone(timedelta(hours=5, minutes=30))
-URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:smile\.)?(?:amazon\.in|amzn\.in)/\S+|https?://\S+",
+    re.IGNORECASE,
+)
+ASIN_RE = re.compile(r"^[A-Z0-9]{10}$", re.IGNORECASE)
 PRODUCT_NAME_LIMIT = 500
+SHORT_URL_TIMEOUT = 8
+SHORT_URL_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    )
+}
 
 state = {
     "check_running": False,
@@ -66,8 +79,115 @@ def short_label(text, limit=42):
     return f"{trimmed}..." if trimmed else text[:limit]
 
 
-def clean_url(url):
+def strip_url(url):
     return url.strip().strip("<>").rstrip(").,")
+
+
+def ensure_url_scheme(url):
+    stripped = strip_url(url)
+    if re.match(r"^https?://", stripped, re.IGNORECASE):
+        return stripped
+    return f"https://{stripped}"
+
+
+def canonical_amazon_url_from_asin(asin):
+    return f"https://www.amazon.in/dp/{asin.upper()}"
+
+
+def extract_asin_from_path(path):
+    parts = [part for part in path.split("/") if part]
+    for marker in ("dp", "product"):
+        if marker in parts:
+            index = parts.index(marker)
+            if index + 1 < len(parts):
+                candidate = parts[index + 1]
+                if ASIN_RE.match(candidate):
+                    return candidate.upper()
+    return None
+
+
+def resolve_amzn_short_url(url):
+    try:
+        response = requests.head(
+            url,
+            headers=SHORT_URL_HEADERS,
+            timeout=SHORT_URL_TIMEOUT,
+            allow_redirects=True,
+        )
+        if response.url and response.url != url:
+            return response.url
+    except requests.RequestException:
+        pass
+
+    response = requests.get(
+        url,
+        headers=SHORT_URL_HEADERS,
+        timeout=SHORT_URL_TIMEOUT,
+        allow_redirects=True,
+        stream=True,
+    )
+    response.close()
+    return response.url
+
+
+def clean_url(url, resolve_short=False):
+    raw_url = ensure_url_scheme(url)
+    parsed = urlparse(raw_url)
+    host = parsed.netloc.lower()
+
+    if host.startswith("www."):
+        host = host[4:]
+
+    if host == "amzn.in":
+        if not resolve_short:
+            return raw_url
+        resolved_url = resolve_amzn_short_url(raw_url)
+        return clean_url(resolved_url, resolve_short=False)
+
+    if host == "smile.amazon.in":
+        host = "amazon.in"
+
+    if host not in ("amazon.in", "www.amazon.in"):
+        return raw_url
+
+    asin = extract_asin_from_path(parsed.path)
+    return canonical_amazon_url_from_asin(asin) if asin else raw_url
+
+
+def canonicalize_amazon_product_url(url):
+    raw_url = ensure_url_scheme(url)
+    parsed = urlparse(raw_url)
+    host = parsed.netloc.lower()
+
+    if host.startswith("www."):
+        host = host[4:]
+
+    if host == "amzn.in":
+        try:
+            resolved_url = clean_url(raw_url, resolve_short=True)
+        except requests.RequestException:
+            return None, "Could not resolve Amazon short link. Send the full Amazon product URL."
+        if strip_url(resolved_url) == raw_url:
+            return None, "Could not resolve Amazon short link. Send the full Amazon product URL."
+        canonical_url, error = canonicalize_amazon_product_url(resolved_url)
+        if not canonical_url:
+            return None, error or "Could not find a product ASIN from that Amazon short link."
+        return canonical_url, None
+
+    if host == "smile.amazon.in":
+        host = "amazon.in"
+
+    if host != "amazon.in":
+        return None, "Please send a valid Amazon India product link."
+
+    if parsed.path in ("/s", "/s/") or parsed.path.startswith("/s/"):
+        return None, "Amazon search pages cannot be tracked. Send a product page link."
+
+    asin = extract_asin_from_path(parsed.path)
+    if not asin:
+        return None, "I could not find an Amazon ASIN in that URL. Send a product page link."
+
+    return canonical_amazon_url_from_asin(asin), None
 
 
 def clean_product_name(name):
@@ -137,9 +257,10 @@ def get_user_settings(chat_id):
 
 
 def make_product(url, name=None, index=1):
+    cleaned_url, _error = canonicalize_amazon_product_url(url)
     cleaned_name = clean_product_name(name) or f"Product {index}"
     return {
-        "url": clean_url(url),
+        "url": cleaned_url or clean_url(url),
         "name": cleaned_name,
         "source_name": cleaned_name,
         "custom_name": None,
@@ -176,8 +297,8 @@ def get_user_products(chat_id):
 
 
 def is_amazon_url(url):
-    url = clean_url(url).lower()
-    return url.startswith(("http://", "https://")) and "amazon." in url
+    canonical_url, _error = canonicalize_amazon_product_url(url)
+    return canonical_url is not None
 
 
 def status_label(available):
@@ -246,7 +367,8 @@ def product_button_name(chat_id, index, product):
 
 
 def product_exists(products, url):
-    cleaned = clean_url(url)
+    cleaned, _error = canonicalize_amazon_product_url(url)
+    cleaned = cleaned or clean_url(url)
     return any(product["url"] == cleaned for product in products)
 
 
@@ -273,14 +395,15 @@ def max_products_for(chat_id):
 def add_product(chat_id, url):
     products = get_user_products(chat_id)
     limit = max_products_for(chat_id)
-    if not is_amazon_url(url):
-        return False, "Please send a valid Amazon product link."
-    if product_exists(products, url):
+    cleaned_url, error = canonicalize_amazon_product_url(url)
+    if not cleaned_url:
+        return False, error or "Please send a valid Amazon India product link."
+    if product_exists(products, cleaned_url):
         return False, "That product is already being tracked."
     if limit is not None and len(products) >= limit:
         return False, f"Maximum {limit} products allowed. Remove one before adding another."
 
-    products.append(make_product(url, index=len(products) + 1))
+    products.append(make_product(cleaned_url, index=len(products) + 1))
     save_user_products(chat_id, products)
     return True, f"Added Product {len(products)}."
 
