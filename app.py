@@ -306,6 +306,12 @@ def get_user_products(chat_id):
         normalize_product(product, index)
         for index, product in enumerate(load_user_products(chat_id), start=1)
     ]
+    settings = normalize_settings(load_user_settings(chat_id))
+    button_names = settings.get("button_names") or {}
+    for index, product in enumerate(products, start=1):
+        saved_name = clean_product_name(button_names.get(str(index)))
+        if saved_name:
+            product["custom_name"] = saved_name
     save_user_products(chat_id, products)
     return products
 
@@ -369,21 +375,22 @@ def send_back_message(message, chat_id, target="back_start"):
 
 def product_display_name(product):
     return (
-        clean_product_name(product.get("source_name"))
+        clean_product_name(product.get("custom_name"))
+        or clean_product_name(product.get("source_name"))
         or clean_product_name(product.get("name"))
         or "Product"
     )
 
 
 def product_button_name(chat_id, index, product):
+    custom_name = clean_product_name(product.get("custom_name"))
+    if custom_name:
+        return short_label(custom_name)
+
     settings = get_user_settings(chat_id)
     button_name = clean_product_name(settings.get("button_names", {}).get(str(index)))
     if button_name:
         return short_label(button_name)
-
-    old_custom_name = clean_product_name(product.get("custom_name"))
-    if old_custom_name:
-        return short_label(old_custom_name)
 
     return f"Product {index}"
 
@@ -490,16 +497,18 @@ def rename_product(chat_id, number_text, new_name):
     settings = get_user_settings(chat_id)
     button_names = settings.setdefault("button_names", {})
     button_names[str(number)] = cleaned_name
+    products[number - 1]["custom_name"] = cleaned_name
     save_user_settings(chat_id, settings)
+    save_user_products(chat_id, products)
     return True, rename_success_message(number, cleaned_name)
 
 
 def rename_success_message(number, cleaned_name):
     return (
-        f"*Product {number}* renamed to `{cleaned_name}`\n\n"
-        "This name now appears on:\n"
-        f"— 🔍 Check Product {number} button as `{cleaned_name}`\n"
-        f"— 🗑 Remove Product {number} button as `{cleaned_name}`"
+        "✅ Product renamed\n\n"
+        f"Product {number} → {cleaned_name}\n\n"
+        "This product will now appear as:\n"
+        f"{cleaned_name}"
     )
 
 
@@ -838,8 +847,8 @@ def alert_menu_message(settings):
 
 
 def alert_menu_markup(settings):
-    every_text = "✅ 🔔 Alert Every Check" if not settings["notify_only_on_change"] else "🔔 Alert Every Check"
-    changes_text = "🔄 Alert Only On Stock Changes" if not settings["notify_only_on_change"] else "✅ 🔄 Alert Only On Stock Changes"
+    every_text = "✅ Notify every check" if not settings["notify_only_on_change"] else "Notify every check"
+    changes_text = "Notify only when stock changes" if not settings["notify_only_on_change"] else "✅ Notify only when stock changes"
     return {
         "inline_keyboard": [
             [{"text": every_text, "callback_data": "notify:every"}],
