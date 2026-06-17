@@ -56,6 +56,19 @@ URL_RE = re.compile(
 ASIN_RE = re.compile(r"^[A-Z0-9]{10}$", re.IGNORECASE)
 PRODUCT_NAME_LIMIT = 500
 SHORT_URL_TIMEOUT = 8
+PRODUCT_SEPARATOR = "──────────────────"
+NUMBER_EMOJIS = {
+    1: "1️⃣",
+    2: "2️⃣",
+    3: "3️⃣",
+    4: "4️⃣",
+    5: "5️⃣",
+    6: "6️⃣",
+    7: "7️⃣",
+    8: "8️⃣",
+    9: "9️⃣",
+    10: "🔟",
+}
 SHORT_URL_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -318,6 +331,10 @@ def product_status_label(product):
     return status_label(product["last_status"])
 
 
+def product_number_icon(index):
+    return NUMBER_EMOJIS.get(index, f"#{index}")
+
+
 def product_status_block(index, product):
     checked = product["last_checked"] or "never"
     price = product.get("last_price") or "not found"
@@ -505,7 +522,13 @@ def my_products_message(chat_id):
         lines.append("\nNo products yet.")
     else:
         for index, product in enumerate(products, start=1):
-            lines.append(f"{index}. {product_display_name(product)}")
+            lines.extend(
+                [
+                    "",
+                    f"{product_number_icon(index)} {product_display_name(product)}",
+                    PRODUCT_SEPARATOR,
+                ]
+            )
     return "\n".join(lines)
 
 
@@ -531,8 +554,14 @@ def product_links_message(chat_id):
 
     lines = ["*My Products*"]
     for index, product in enumerate(products, start=1):
-        lines.append(f"\n{index}. {product_display_name(product)}")
-        lines.append(f"[Buy on Amazon]({product['url']})")
+        lines.extend(
+            [
+                "",
+                f"{product_number_icon(index)} {product_display_name(product)}",
+                f"[Buy on Amazon]({product['url']})",
+                PRODUCT_SEPARATOR,
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -610,6 +639,17 @@ def status_icon(product):
     return "⚪ Not checked yet"
 
 
+def status_parts(product):
+    status = product_status_label(product)
+    if status == "available":
+        return "✅", "Available"
+    if status == "unavailable":
+        return "❌", "Unavailable"
+    if status == "unclear":
+        return "⚠️", "Unclear"
+    return "⚪", "Not checked yet"
+
+
 def compact_checked_time(product):
     checked = product.get("last_checked")
     if not checked:
@@ -626,13 +666,16 @@ def compact_product_status_message(chat_id):
     lines = ["*Product Status*"]
     for index, product in enumerate(products, start=1):
         price = product.get("last_price") or "Not found"
+        status_emoji, status_text = status_parts(product)
         lines.extend(
             [
                 "",
-                f"{index}. {product_display_name(product)}",
-                status_icon(product),
-                f"💰 Price: {price}",
-                f"🕒 Last checked: {compact_checked_time(product)}",
+                f"{product_number_icon(index)} {product_display_name(product)}",
+                "",
+                f"{status_emoji} *Status:* {status_text}",
+                f"💰 *Price:* {price}",
+                f"🕒 *Last checked:* {compact_checked_time(product)}",
+                PRODUCT_SEPARATOR,
             ]
         )
     return "\n".join(lines)
@@ -789,7 +832,7 @@ def send_interval_menu(chat_id):
 def alert_menu_message(settings):
     mode = "Only when stock changes" if settings["notify_only_on_change"] else "Every check"
     return (
-        "*Alert Mode*\n\n"
+        "*Notifications*\n\n"
         f"*Current:* `{mode}`"
     )
 
@@ -816,26 +859,26 @@ def send_alert_menu(chat_id):
 
 
 def settings_message(settings):
-    tracking = "Paused" if settings["paused"] else "Active"
+    auto_check = "Paused" if settings["paused"] else "Active"
     alert_mode = "Only when stock changes" if settings["notify_only_on_change"] else "Every check"
     return (
         "*Settings*\n\n"
-        f"*Tracking:* {tracking}\n"
+        f"*Auto check:* {auto_check}\n"
         f"*Check every:* {settings['interval']} minutes\n"
-        f"*Alert mode:* {alert_mode}"
+        f"*Notify:* {alert_mode}"
     )
 
 
 def settings_markup(settings):
     toggle = (
-        {"text": "▶️ Resume Tracking", "callback_data": "resume"}
+        {"text": "▶️ Resume Auto Check", "callback_data": "resume"}
         if settings["paused"]
-        else {"text": "⏸ Pause Tracking", "callback_data": "pause"}
+        else {"text": "⏸ Pause Auto Check", "callback_data": "pause"}
     )
     return inline_keyboard(
         [
             [{"text": "⏱ Check Every...", "callback_data": "interval_menu"}],
-            [{"text": "🔔 Alert Mode", "callback_data": "alert_menu"}],
+            [{"text": "🔔 Notifications", "callback_data": "alert_menu"}],
             [toggle],
             [{"text": "⬅️ Back", "callback_data": "back_start"}],
         ]
