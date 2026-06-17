@@ -376,9 +376,7 @@ def product_short_name(chat_id, index, product):
 
 
 def product_limit_text(chat_id):
-    limit = max_products_for(chat_id)
-    count = len(get_user_products(chat_id))
-    return f"{count}/unlimited" if limit is None else f"{count}/{limit}"
+    return str(len(get_user_products(chat_id)))
 
 
 def main_menu(chat_id):
@@ -507,7 +505,7 @@ def my_products_message(chat_id):
         lines.append("\nNo products yet.")
     else:
         for index, product in enumerate(products, start=1):
-            lines.append(f"{index}. {product_short_name(chat_id, index, product)}")
+            lines.append(f"{index}. {product_display_name(product)}")
     return "\n".join(lines)
 
 
@@ -533,7 +531,7 @@ def product_links_message(chat_id):
 
     lines = ["*My Products*"]
     for index, product in enumerate(products, start=1):
-        lines.append(f"\n{index}. {product_short_name(chat_id, index, product)}")
+        lines.append(f"\n{index}. {product_display_name(product)}")
         lines.append(f"[Buy on Amazon]({product['url']})")
     return "\n".join(lines)
 
@@ -631,10 +629,10 @@ def compact_product_status_message(chat_id):
         lines.extend(
             [
                 "",
-                f"{index}. {product_short_name(chat_id, index, product)}",
+                f"{index}. {product_display_name(product)}",
                 status_icon(product),
                 f"💰 Price: {price}",
-                f"🕒 Checked: {compact_checked_time(product)}",
+                f"🕒 Last checked: {compact_checked_time(product)}",
             ]
         )
     return "\n".join(lines)
