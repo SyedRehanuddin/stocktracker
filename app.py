@@ -68,6 +68,7 @@ state = {
     "check_started_at": None,
     "telegram_offset": None,
     "awaiting_product_url": set(),
+    "awaiting_rename": {},
 }
 
 
@@ -337,12 +338,16 @@ def controls(settings):
     }
 
 
-def back_markup():
-    return {"inline_keyboard": [[{"text": "⬅️ Back", "callback_data": "back_start"}]]}
+def inline_keyboard(rows):
+    return {"inline_keyboard": rows}
 
 
-def send_back_message(message, chat_id):
-    send_telegram_message(message, chat_id=chat_id, reply_markup=back_markup())
+def back_markup(target="back_start"):
+    return inline_keyboard([[{"text": "⬅️ Back", "callback_data": target}]])
+
+
+def send_back_message(message, chat_id, target="back_start"):
+    send_telegram_message(message, chat_id=chat_id, reply_markup=back_markup(target))
 
 
 def product_display_name(product):
@@ -364,6 +369,33 @@ def product_button_name(chat_id, index, product):
         return short_label(old_custom_name)
 
     return f"Product {index}"
+
+
+def product_short_name(chat_id, index, product):
+    return product_button_name(chat_id, index, product)
+
+
+def product_limit_text(chat_id):
+    limit = max_products_for(chat_id)
+    count = len(get_user_products(chat_id))
+    return f"{count}/unlimited" if limit is None else f"{count}/{limit}"
+
+
+def main_menu(chat_id):
+    return inline_keyboard(
+        [
+            [{"text": "➕ Add Product", "callback_data": "add"}],
+            [{"text": "📦 My Products", "callback_data": "products_menu"}],
+            [{"text": "🔍 Check Now", "callback_data": "check"}],
+            [{"text": "📊 Product Status", "callback_data": "status"}],
+            [{"text": "⚙️ Settings", "callback_data": "settings_menu"}],
+            [{"text": "❓ Help", "callback_data": "help"}],
+        ]
+    )
+
+
+def send_main_menu(chat_id):
+    send_telegram_message(start_message(chat_id), chat_id=chat_id, reply_markup=main_menu(chat_id))
 
 
 def product_exists(products, url):
@@ -444,11 +476,15 @@ def rename_product(chat_id, number_text, new_name):
     button_names = settings.setdefault("button_names", {})
     button_names[str(number)] = cleaned_name
     save_user_settings(chat_id, settings)
-    return True, (
+    return True, rename_success_message(number, cleaned_name)
+
+
+def rename_success_message(number, cleaned_name):
+    return (
         f"*Product {number}* renamed to `{cleaned_name}`\n\n"
         "This name now appears on:\n"
         f"— 🔍 Check Product {number} button as `{cleaned_name}`\n"
-        f"— 🗑 Delete Product {number} button as `{cleaned_name}`"
+        f"— 🗑 Remove Product {number} button as `{cleaned_name}`"
     )
 
 
@@ -464,11 +500,153 @@ def product_list_message(chat_id):
     return "\n".join(lines)
 
 
+def my_products_message(chat_id):
+    products = get_user_products(chat_id)
+    lines = [f"*Your Products:* `{product_limit_text(chat_id)}`"]
+    if not products:
+        lines.append("\nNo products yet.")
+    else:
+        for index, product in enumerate(products, start=1):
+            lines.append(f"{index}. {product_short_name(chat_id, index, product)}")
+    return "\n".join(lines)
+
+
+def my_products_markup():
+    return inline_keyboard(
+        [
+            [{"text": "🔗 View Product Links", "callback_data": "product_links"}],
+            [{"text": "✏️ Rename Product", "callback_data": "rename_menu"}],
+            [{"text": "🗑 Remove Product", "callback_data": "remove_menu"}],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
+    )
+
+
+def send_products_menu(chat_id):
+    send_telegram_message(my_products_message(chat_id), chat_id=chat_id, reply_markup=my_products_markup())
+
+
+def product_links_message(chat_id):
+    products = get_user_products(chat_id)
+    if not products:
+        return "*My Products*\n\nNo products yet."
+
+    lines = ["*My Products*"]
+    for index, product in enumerate(products, start=1):
+        lines.append(f"\n{index}. {product_short_name(chat_id, index, product)}")
+        lines.append(f"[Buy on Amazon]({product['url']})")
+    return "\n".join(lines)
+
+
+def product_links_markup():
+    return back_markup("back_products")
+
+
+def product_rename_rows(chat_id):
+    rows = []
+    for index, product in enumerate(get_user_products(chat_id), start=1):
+        rows.append(
+            [
+                {
+                    "text": f"✏️ Rename {product_short_name(chat_id, index, product)}",
+                    "callback_data": f"rename_product:{index}",
+                }
+            ]
+        )
+    rows.append([{"text": "⬅️ Back", "callback_data": "back_products"}])
+    return rows
+
+
+def send_rename_picker(chat_id):
+    send_telegram_message(
+        "*Choose product to rename*",
+        chat_id=chat_id,
+        reply_markup=inline_keyboard(product_rename_rows(chat_id)),
+    )
+
+
+def product_remove_rows(chat_id):
+    rows = []
+    for index, product in enumerate(get_user_products(chat_id), start=1):
+        rows.append(
+            [
+                {
+                    "text": f"🗑 Remove {product_short_name(chat_id, index, product)}",
+                    "callback_data": f"delete_product:{index}",
+                }
+            ]
+        )
+    rows.append([{"text": "⬅️ Back", "callback_data": "back_products"}])
+    return rows
+
+
+def remove_picker_message(chat_id):
+    if not get_user_products(chat_id):
+        return "*Choose product to remove*\n\nNo products yet. Use `/add` to add one."
+    return "*Choose product to remove*"
+
+
+def send_remove_picker(chat_id):
+    send_telegram_message(
+        remove_picker_message(chat_id),
+        chat_id=chat_id,
+        reply_markup=inline_keyboard(product_remove_rows(chat_id)),
+    )
+
+
 def product_summary_lines(chat_id):
     return [
         product_status_block(index, product)
         for index, product in enumerate(get_user_products(chat_id), start=1)
     ]
+
+
+def status_icon(product):
+    status = product_status_label(product)
+    if status == "available":
+        return "✅ Available"
+    if status == "unavailable":
+        return "❌ Unavailable"
+    if status == "unclear":
+        return "⚠️ Unclear"
+    return "⚪ Not checked yet"
+
+
+def compact_checked_time(product):
+    checked = product.get("last_checked")
+    if not checked:
+        return "Never"
+    match = re.search(r"(\d{1,2}:\d{2}\s[AP]M)", checked)
+    return match.group(1) if match else checked
+
+
+def compact_product_status_message(chat_id):
+    products = get_user_products(chat_id)
+    if not products:
+        return "*Product Status*\n\nNo products yet."
+
+    lines = ["*Product Status*"]
+    for index, product in enumerate(products, start=1):
+        price = product.get("last_price") or "Not found"
+        lines.extend(
+            [
+                "",
+                f"{index}. {product_short_name(chat_id, index, product)}",
+                status_icon(product),
+                f"💰 Price: {price}",
+                f"🕒 Checked: {compact_checked_time(product)}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def status_markup():
+    return inline_keyboard(
+        [
+            [{"text": "🔍 Check Now", "callback_data": "check"}],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
+    )
 
 
 def check_age_seconds():
@@ -540,10 +718,9 @@ def product_check_rows(chat_id):
 
 
 def check_picker_message(chat_id):
-    products = product_summary_lines(chat_id)
-    if not products:
+    if not get_user_products(chat_id):
         return "*Choose Product To Check*\n\nNo products yet. Use `/add` to add one."
-    return "*Choose Product To Check*\n\n" + "\n\n".join(products)
+    return "*Choose product to check*"
 
 
 def send_check_picker(chat_id):
@@ -560,20 +737,17 @@ def product_delete_rows(chat_id):
         rows.append(
             [
                 {
-                    "text": f"🗑 Delete {product_button_name(chat_id, index, product)}",
+                    "text": f"🗑 Remove {product_button_name(chat_id, index, product)}",
                     "callback_data": f"delete_product:{index}",
                 }
             ]
         )
-    rows.append([{"text": "⬅️ Back", "callback_data": "back_start"}])
+    rows.append([{"text": "⬅️ Back", "callback_data": "back_products"}])
     return rows
 
 
 def delete_picker_message(chat_id):
-    products = product_summary_lines(chat_id)
-    if not products:
-        return "*Choose Product To Delete*\n\nNo products yet. Use `/add` to add one."
-    return "*Choose Product To Delete*\n\n" + "\n\n".join(products)
+    return remove_picker_message(chat_id)
 
 
 def send_delete_picker(chat_id):
@@ -586,7 +760,7 @@ def send_delete_picker(chat_id):
 
 def interval_menu_message(settings):
     return (
-        "*How Often Should I Check?*\n\n"
+        "*How often should I check?*\n\n"
         f"*Current:* `{settings['interval']} minutes`"
     )
 
@@ -600,7 +774,7 @@ def interval_menu_markup(settings):
             [{"text": text(15), "callback_data": "interval:15"}],
             [{"text": text(30), "callback_data": "interval:30"}],
             [{"text": text(60), "callback_data": "interval:60"}],
-            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+            [{"text": "⬅️ Back", "callback_data": "back_settings"}],
         ]
     }
 
@@ -615,21 +789,21 @@ def send_interval_menu(chat_id):
 
 
 def alert_menu_message(settings):
-    mode = "only when stock changes" if settings["notify_only_on_change"] else "after every check"
+    mode = "Only when stock changes" if settings["notify_only_on_change"] else "Every check"
     return (
-        "*Alert Settings*\n\n"
-        f"*Current:* `Alert me {mode}`"
+        "*Alert Mode*\n\n"
+        f"*Current:* `{mode}`"
     )
 
 
 def alert_menu_markup(settings):
-    every_text = "✅ 🔔 Alert me every check" if not settings["notify_only_on_change"] else "🔔 Alert me every check"
-    changes_text = "🔕 Alert only when stock changes" if not settings["notify_only_on_change"] else "✅ 🔕 Alert only when stock changes"
+    every_text = "✅ 🔔 Alert Every Check" if not settings["notify_only_on_change"] else "🔔 Alert Every Check"
+    changes_text = "🔄 Alert Only On Stock Changes" if not settings["notify_only_on_change"] else "✅ 🔄 Alert Only On Stock Changes"
     return {
         "inline_keyboard": [
             [{"text": every_text, "callback_data": "notify:every"}],
             [{"text": changes_text, "callback_data": "notify:changes"}],
-            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+            [{"text": "⬅️ Back", "callback_data": "back_settings"}],
         ]
     }
 
@@ -641,6 +815,75 @@ def send_alert_menu(chat_id):
         chat_id=chat_id,
         reply_markup=alert_menu_markup(settings),
     )
+
+
+def settings_message(settings):
+    tracking = "Paused" if settings["paused"] else "Active"
+    alert_mode = "Only when stock changes" if settings["notify_only_on_change"] else "Every check"
+    return (
+        "*Settings*\n\n"
+        f"*Tracking:* {tracking}\n"
+        f"*Check every:* {settings['interval']} minutes\n"
+        f"*Alert mode:* {alert_mode}"
+    )
+
+
+def settings_markup(settings):
+    toggle = (
+        {"text": "▶️ Resume Tracking", "callback_data": "resume"}
+        if settings["paused"]
+        else {"text": "⏸ Pause Tracking", "callback_data": "pause"}
+    )
+    return inline_keyboard(
+        [
+            [{"text": "⏱ Check Every...", "callback_data": "interval_menu"}],
+            [{"text": "🔔 Alert Mode", "callback_data": "alert_menu"}],
+            [toggle],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
+    )
+
+
+def send_settings_menu(chat_id):
+    settings = get_user_settings(chat_id)
+    send_telegram_message(settings_message(settings), chat_id=chat_id, reply_markup=settings_markup(settings))
+
+
+def help_message(chat_id):
+    admin_lines = (
+        "\n\n*Admin commands:*\n"
+        "/users - list users\n"
+        "/removeuser 123 - remove user access"
+        if is_admin(chat_id)
+        else ""
+    )
+    return (
+        "*Help*\n\n"
+        "This bot tracks Amazon India product stock.\n\n"
+        "*How to use:*\n"
+        "1. Tap ➕ Add Product and send an Amazon product link.\n"
+        "2. Tap 🔍 Check Now to manually check a product.\n"
+        "3. Tap 📊 Product Status to see stock, price, and last checked time.\n"
+        "4. Tap 📦 My Products to view, rename, or remove products.\n"
+        "5. Tap ⚙️ Settings to change check timing and alerts.\n\n"
+        "*Commands:*\n"
+        "/start - open main menu\n"
+        "/status - show product status\n"
+        "/list - show product links\n"
+        "/add - add an Amazon product\n"
+        "/rename 2 Keyboard - rename product buttons\n"
+        "/check - choose a product to check\n"
+        "/delete - choose a product to remove\n"
+        "/cancel - clear stuck check state\n"
+        "/pause - pause tracking\n"
+        "/resume - resume tracking\n"
+        "/help - show this help"
+        f"{admin_lines}"
+    )
+
+
+def send_help_menu(chat_id):
+    send_telegram_message(help_message(chat_id), chat_id=chat_id, reply_markup=back_markup("back_start"))
 
 
 def product_number(products, product):
@@ -913,7 +1156,7 @@ def approval_buttons(chat_id):
 def request_access(message):
     chat_id = chat_id_from_message(message)
     if is_approved_user(chat_id):
-        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
+        send_main_menu(chat_id)
         return
     if is_rejected_user(chat_id):
         send_telegram_message("*Access Denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
@@ -1004,8 +1247,18 @@ def ensure_authorized(chat_id):
 def prompt_for_url(chat_id):
     state["awaiting_product_url"].add(str(chat_id))
     send_back_message(
-        "*Send Me An Amazon Product Link.*\n\nI will add it to your tracker.",
+        "Send me an Amazon product link.\n\nI will add it to your tracker.",
         chat_id=chat_id,
+    )
+
+
+def add_success_markup():
+    return inline_keyboard(
+        [
+            [{"text": "🔍 Check Now", "callback_data": "check"}],
+            [{"text": "➕ Add Another Product", "callback_data": "add"}],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
     )
 
 
@@ -1017,7 +1270,33 @@ def handle_product_url(chat_id, text):
 
     ok, message = add_product(chat_id, match.group(0))
     state["awaiting_product_url"].discard(str(chat_id))
-    send_back_message(f"*{message}*\n\nUse `/list` to see tracked products.", chat_id=chat_id)
+    if ok:
+        send_telegram_message(
+            "✅ Product added successfully.\n\n"
+            "Tip: You can rename the product button from 📦 My Products → ✏️ Rename Product.",
+            chat_id=chat_id,
+            reply_markup=add_success_markup(),
+        )
+    else:
+        send_back_message(f"*{message}*", chat_id=chat_id)
+
+
+def prompt_for_rename(chat_id, product_number):
+    state["awaiting_rename"][str(chat_id)] = product_number
+    send_back_message(
+        "Send the new short name for this product.",
+        chat_id=chat_id,
+        target="back_products",
+    )
+
+
+def handle_rename_text(chat_id, text):
+    product_number = state["awaiting_rename"].pop(str(chat_id), None)
+    if not product_number:
+        return False
+    ok, message = rename_product(chat_id, str(product_number), text)
+    send_back_message(message if ok else f"*{message}*", chat_id=chat_id, target="back_products")
+    return True
 
 
 def handle_command(message):
@@ -1030,7 +1309,7 @@ def handle_command(message):
         if is_admin(chat_id):
             bootstrap_admin()
         if ensure_authorized(chat_id):
-            send_control_message(start_message(chat_id), chat_id=chat_id, **controls(get_user_settings(chat_id)))
+            send_main_menu(chat_id)
         else:
             request_access(message)
         return
@@ -1041,9 +1320,9 @@ def handle_command(message):
 
     settings = get_user_settings(chat_id)
     if command == "/status":
-        send_back_message(control_status_message(chat_id), chat_id=chat_id)
+        send_telegram_message(compact_product_status_message(chat_id), chat_id=chat_id, reply_markup=status_markup())
     elif command == "/list":
-        send_back_message(product_list_message(chat_id), chat_id=chat_id)
+        send_telegram_message(product_links_message(chat_id), chat_id=chat_id, reply_markup=product_links_markup())
     elif command == "/add":
         if len(parts) > 1:
             handle_product_url(chat_id, " ".join(parts[1:]))
@@ -1057,22 +1336,22 @@ def handle_command(message):
             )
         else:
             ok, message = rename_product(chat_id, parts[1], " ".join(parts[2:]))
-            send_back_message(f"*{message}*", chat_id=chat_id)
+            send_back_message(message if ok else f"*{message}*", chat_id=chat_id)
     elif command == "/check":
         send_check_picker(chat_id)
     elif command == "/delete":
-        send_delete_picker(chat_id)
+        send_remove_picker(chat_id)
     elif command == "/cancel":
         clear_check_state_only()
-        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_main_menu(chat_id)
     elif command == "/pause":
         settings["paused"] = True
         save_user_settings(chat_id, settings)
-        send_back_message("*Tracker Paused.*", chat_id=chat_id)
+        send_back_message("*Tracker Paused.*", chat_id=chat_id, target="back_settings")
     elif command == "/resume":
         settings["paused"] = False
         save_user_settings(chat_id, settings)
-        send_back_message("*Tracker Resumed.*", chat_id=chat_id)
+        send_back_message("*Tracker Resumed.*", chat_id=chat_id, target="back_settings")
     elif command == "/users" and is_admin(chat_id):
         send_telegram_message(users_message(), chat_id=chat_id)
     elif command == "/removeuser" and is_admin(chat_id):
@@ -1086,21 +1365,7 @@ def handle_command(message):
             save_user_profile(parts[1], profile)
             send_telegram_message(f"*Removed User Access:* `{parts[1]}`", chat_id=chat_id)
     elif command == "/help":
-        extra = "\n/users - list users\n/removeuser 123 - remove user access" if is_admin(chat_id) else ""
-        send_back_message(
-            "*Commands*\n\n"
-            "/start - show tracker dashboard\n"
-            "/status - show tracked products\n"
-            "/list - list tracked products\n"
-            "/add - add an Amazon product URL\n"
-            "/rename 2 Gaming Keyboard - rename product button/name\n"
-            "/check - choose a product to check now\n"
-            "/delete - choose a product to delete\n"
-            "/pause - pause scheduled checks\n"
-            "/resume - resume scheduled checks"
-            f"{extra}",
-            chat_id=chat_id,
-        )
+        send_help_menu(chat_id)
 
 
 def handle_callback(query):
@@ -1129,44 +1394,73 @@ def handle_callback(query):
     if data == "check":
         answer_callback_query(callback_id, "Choose a product")
         send_check_picker(chat_id)
-    elif data == "delete":
-        answer_callback_query(callback_id, "Choose product to delete")
-        send_delete_picker(chat_id)
     elif data == "back_start":
+        state["awaiting_rename"].pop(str(chat_id), None)
+        state["awaiting_product_url"].discard(str(chat_id))
         answer_callback_query(callback_id, "Back")
-        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_main_menu(chat_id)
+    elif data == "back_products":
+        state["awaiting_rename"].pop(str(chat_id), None)
+        state["awaiting_product_url"].discard(str(chat_id))
+        answer_callback_query(callback_id, "Back")
+        send_products_menu(chat_id)
+    elif data == "back_settings":
+        answer_callback_query(callback_id, "Back")
+        send_settings_menu(chat_id)
+    elif data == "products_menu":
+        answer_callback_query(callback_id, "My products")
+        send_products_menu(chat_id)
+    elif data == "product_links":
+        answer_callback_query(callback_id, "Product links")
+        send_telegram_message(product_links_message(chat_id), chat_id=chat_id, reply_markup=product_links_markup())
+    elif data == "rename_menu":
+        answer_callback_query(callback_id, "Choose product to rename")
+        send_rename_picker(chat_id)
+    elif data == "remove_menu" or data == "delete":
+        answer_callback_query(callback_id, "Choose product to remove")
+        send_remove_picker(chat_id)
+    elif data == "settings_menu":
+        answer_callback_query(callback_id, "Settings")
+        send_settings_menu(chat_id)
+    elif data == "help":
+        answer_callback_query(callback_id, "Help")
+        send_help_menu(chat_id)
     elif data.startswith("check_product:"):
         product_number = int(data.split(":", 1)[1])
         answer_callback_query(callback_id, f"Checking Product {product_number}")
         run_single_product_check_async(chat_id, product_number - 1)
+    elif data.startswith("rename_product:"):
+        product_number = int(data.split(":", 1)[1])
+        answer_callback_query(callback_id, f"Rename Product {product_number}")
+        prompt_for_rename(chat_id, product_number)
     elif data.startswith("delete_product:"):
         product_number = data.split(":", 1)[1]
         ok, message = remove_product(chat_id, product_number)
         answer_callback_query(callback_id, "Deleted" if ok else "Not deleted")
-        send_back_message(f"*{message}*", chat_id=chat_id)
+        send_back_message(f"*{message}*", chat_id=chat_id, target="back_products")
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
-        send_back_message(control_status_message(chat_id), chat_id=chat_id)
+        send_telegram_message(compact_product_status_message(chat_id), chat_id=chat_id, reply_markup=status_markup())
     elif data == "cancel_check":
         clear_check_state_only()
         answer_callback_query(callback_id, "Back")
-        send_control_message(start_message(chat_id), chat_id=chat_id, **controls(settings))
+        send_main_menu(chat_id)
     elif data == "add":
         answer_callback_query(callback_id, "Send a product link")
         prompt_for_url(chat_id)
     elif data == "list":
         answer_callback_query(callback_id, "Sending product list")
-        send_back_message(product_list_message(chat_id), chat_id=chat_id)
+        send_products_menu(chat_id)
     elif data == "pause":
         settings["paused"] = True
         save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Paused")
-        send_back_message("*Tracker paused.*", chat_id=chat_id)
+        send_settings_menu(chat_id)
     elif data == "resume":
         settings["paused"] = False
         save_user_settings(chat_id, settings)
         answer_callback_query(callback_id, "Resumed")
-        send_back_message("*Tracker resumed.*", chat_id=chat_id)
+        send_settings_menu(chat_id)
     elif data == "interval_menu":
         answer_callback_query(callback_id, "Choose interval")
         send_interval_menu(chat_id)
@@ -1205,6 +1499,8 @@ def run_telegram_controls():
                     chat_id = chat_id_from_message(message)
                     if text.startswith("/"):
                         handle_command(message)
+                    elif ensure_authorized(chat_id) and str(chat_id) in state["awaiting_rename"]:
+                        handle_rename_text(chat_id, text)
                     elif ensure_authorized(chat_id) and (
                         str(chat_id) in state["awaiting_product_url"] or URL_RE.search(text)
                     ):

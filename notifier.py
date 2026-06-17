@@ -13,8 +13,6 @@ def build_buttons(
     product_url=None,
     extra_rows=None,
 ):
-    pause_text = "✅ ⏸ Pause Tracking" if paused else "⏸ Pause Tracking"
-    resume_text = "▶️ Resume Tracking" if paused else "✅ ▶️ Resume Tracking"
     rows = []
     if product_url:
         rows.append([{"text": "Buy on Amazon", "url": product_url}])
@@ -23,15 +21,12 @@ def build_buttons(
 
     rows.extend(
         [
-            [{"text": "🔍 Check Products", "callback_data": "check"}],
-            [{"text": "📋 Tracker Status", "callback_data": "status"}],
-            [{"text": "➕ Add Amazon Product", "callback_data": "add"}],
-            [{"text": "🗑 Delete Amazon Product", "callback_data": "delete"}],
+            [{"text": "➕ Add Product", "callback_data": "add"}],
             [{"text": "📦 My Products", "callback_data": "list"}],
-            [{"text": pause_text, "callback_data": "pause"}],
-            [{"text": resume_text, "callback_data": "resume"}],
-            [{"text": "⏱ How often to check", "callback_data": "interval_menu"}],
-            [{"text": "🔔 Alert settings", "callback_data": "alert_menu"}],
+            [{"text": "🔍 Check Now", "callback_data": "check"}],
+            [{"text": "📊 Product Status", "callback_data": "status"}],
+            [{"text": "⚙️ Settings", "callback_data": "settings_menu"}],
+            [{"text": "❓ Help", "callback_data": "help"}],
         ]
     )
 

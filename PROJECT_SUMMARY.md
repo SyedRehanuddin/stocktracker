@@ -87,15 +87,14 @@ Limits:
 
 ## Telegram Main Menu Buttons
 
-- 🔍 Check Products
-- 📋 Tracker Status
-- ➕ Add Amazon Product
-- 🗑 Delete Amazon Product
+- ➕ Add Product
 - 📦 My Products
-- ⏸ Pause Tracking
-- ▶️ Resume Tracking
-- ⏱ How often to check
-- 🔔 Alert settings
+- 🔍 Check Now
+- 📊 Product Status
+- ⚙️ Settings
+- ❓ Help
+
+Product management lives inside `📦 My Products`. Tracking behavior lives inside `⚙️ Settings`.
 
 ## Telegram Commands
 
@@ -128,7 +127,7 @@ Admin-only commands:
 - `/add`: asks for an Amazon product URL.
 - `/rename 2 Name`: renames the action buttons for product 2.
 - `/check`: opens the product check picker.
-- `/delete`: opens the product delete picker.
+- `/delete`: opens the product remove picker.
 - `/cancel`: clears stuck check state and returns to main menu.
 - `/pause`: pauses scheduled checks for that user.
 - `/resume`: resumes scheduled checks for that user.
@@ -149,24 +148,26 @@ Example:
 This changes:
 
 - `🔍 Check Product 2` to `🔍 Check vvv`
-- `🗑 Delete Product 2` to `🗑 Delete vvv`
+- `✏️ Rename Product 2` to `✏️ Rename vvv`
+- `🗑 Remove Product 2` to `🗑 Remove vvv`
 
 Status and product list still show the real Amazon product name.
 
 Button names are stored in user settings, separate from product data, so scheduled stock checks cannot overwrite them.
 
-## Delete Behavior
+## Remove Behavior
 
-Deleting is handled by inline buttons from the Telegram menu.
+Removing is handled by inline buttons from `📦 My Products`.
 
 Flow:
 
-1. Tap `🗑 Delete Amazon Product`.
-2. Bot shows `🗑 Delete Product 1`, `🗑 Delete Product 2`, etc.
-3. Tap the product to delete.
-4. Bot removes it and confirms the deletion.
+1. Tap `📦 My Products`.
+2. Tap `🗑 Remove Product`.
+3. Bot shows `🗑 Remove Product 1`, `🗑 Remove Product 2`, etc.
+4. Tap the product to remove.
+5. Bot removes it and confirms the removal.
 
-If a product is deleted, saved button names are reindexed so labels stay attached to the product that moved up.
+If a product is removed, saved button names are reindexed so labels stay attached to the product that moved up.
 
 ## Availability Detection
 

@@ -55,14 +55,12 @@ delete from the Telegram delete menu stay deleted across restarts and redeploys.
 
 The bot sends inline buttons with every message:
 
-- Check Products
-- Tracker Status
-- Add Amazon Product
-- Delete Amazon Product
+- Add Product
 - My Products
-- Pause Tracking / Resume Tracking
-- How often to check
-- Alert settings
+- Check Now
+- Product Status
+- Settings
+- Help
 
 Commands also work:
 
