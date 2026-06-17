@@ -290,7 +290,7 @@ def remove_product(chat_id, number_text):
     try:
         number = int(number_text)
     except ValueError:
-        return False, "Use `/remove 2` with the product number from `/list`."
+        return False, "Choose a product from the delete menu."
 
     if number < 1 or number > len(products):
         return False, "That product number is not in the list."
@@ -926,12 +926,6 @@ def handle_command(message):
             handle_product_url(chat_id, " ".join(parts[1:]))
         else:
             prompt_for_url(chat_id)
-    elif command == "/remove":
-        if len(parts) < 2:
-            send_back_message("*Usage:* `/remove 2`\n\nUse the number from `/list`.", chat_id=chat_id)
-        else:
-            ok, message = remove_product(chat_id, parts[1])
-            send_back_message(f"*{message}*", chat_id=chat_id)
     elif command == "/rename":
         if len(parts) < 3:
             send_back_message(
@@ -976,7 +970,6 @@ def handle_command(message):
             "/status - show tracked products\n"
             "/list - list tracked products\n"
             "/add - add an Amazon product URL\n"
-            "/remove 2 - remove product number 2\n"
             "/rename 2 Gaming Keyboard - rename product button/name\n"
             "/check - choose a product to check now\n"
             "/delete - choose a product to delete\n"

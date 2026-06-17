@@ -187,7 +187,6 @@ def set_bot_commands():
                 {"command": "check", "description": "Choose a product to check now"},
                 {"command": "add", "description": "Add an Amazon product URL"},
                 {"command": "list", "description": "List tracked products"},
-                {"command": "remove", "description": "Remove a product by number"},
                 {"command": "rename", "description": "Rename a product by number"},
                 {"command": "delete", "description": "Choose a product to delete"},
                 {"command": "cancel", "description": "Cancel stuck check state"},

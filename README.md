@@ -49,21 +49,20 @@ PROXY_URL=optional_proxy_url   # leave unset unless Amazon starts blocking
 
 `PRODUCT_URL` and `ADDITIONAL_PRODUCT_URLS` seed the tracker ONLY on first run,
 when storage is empty. After that, Redis is the source of truth, so products you
-remove with `/remove` stay removed across restarts and redeploys.
+delete from the Telegram delete menu stay deleted across restarts and redeploys.
 
 ## Telegram Controls
 
 The bot sends inline buttons with every message:
 
-- Buy on Amazon
-- Check Now
-- Status
-- Add Product
-- List Products
-- Cancel Check
-- Pause / Resume
-- 5m / 10m / 15m / 30m interval
-- Notify every check / changes only
+- Check Products
+- Tracker Status
+- Add Amazon Product
+- Delete Amazon Product
+- My Products
+- Pause Tracking / Resume Tracking
+- How often to check
+- Alert settings
 
 Commands also work:
 
@@ -72,8 +71,9 @@ Commands also work:
 /status
 /list
 /add
-/remove 2
+/rename 2 Gaming Keyboard
 /check
+/delete
 /cancel
 /pause
 /resume
