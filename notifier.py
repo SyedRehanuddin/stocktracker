@@ -13,8 +13,8 @@ def build_buttons(
     product_url=None,
     extra_rows=None,
 ):
-    pause_text = "⏸ Pause Tracking" if paused else "✅ ⏸ Pause Tracking"
-    resume_text = "✅ ▶️ Resume Tracking" if paused else "▶️ Resume Tracking"
+    pause_text = "✅ ⏸ Pause Tracking" if paused else "⏸ Pause Tracking"
+    resume_text = "▶️ Resume Tracking" if paused else "✅ ▶️ Resume Tracking"
     rows = []
     if product_url:
         rows.append([{"text": "Buy on Amazon", "url": product_url}])

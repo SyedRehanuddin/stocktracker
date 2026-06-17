@@ -103,6 +103,7 @@ def default_settings():
         "notify_only_on_change": False,
         "interval": MIN_CHECK_INTERVAL_MINUTES,
         "last_scheduled_check_epoch": 0,
+        "button_names": {},
     }
 
 
@@ -120,6 +121,12 @@ def normalize_settings(settings):
     normalized["last_scheduled_check_epoch"] = int(
         normalized.get("last_scheduled_check_epoch", 0) or 0
     )
+    button_names = normalized.get("button_names") or {}
+    normalized["button_names"] = {
+        str(key): clean_product_name(value)
+        for key, value in dict(button_names).items()
+        if clean_product_name(value)
+    }
     return normalized
 
 
@@ -222,10 +229,16 @@ def product_display_name(product):
     )
 
 
-def product_button_name(index, product):
-    custom_name = clean_product_name(product.get("custom_name"))
-    if custom_name:
-        return short_label(custom_name)
+def product_button_name(chat_id, index, product):
+    settings = get_user_settings(chat_id)
+    button_name = clean_product_name(settings.get("button_names", {}).get(str(index)))
+    if button_name:
+        return short_label(button_name)
+
+    old_custom_name = clean_product_name(product.get("custom_name"))
+    if old_custom_name:
+        return short_label(old_custom_name)
+
     return f"Product {index}"
 
 
@@ -282,8 +295,10 @@ def rename_product(chat_id, number_text, new_name):
     if not cleaned_name:
         return False, "Send a name after the product number. Example: `/rename 2 Gaming Keyboard`."
 
-    products[number - 1]["custom_name"] = cleaned_name
-    save_user_products(chat_id, products)
+    settings = get_user_settings(chat_id)
+    button_names = settings.setdefault("button_names", {})
+    button_names[str(number)] = cleaned_name
+    save_user_settings(chat_id, settings)
     return True, f"Renamed check button {number} to {cleaned_name}."
 
 
@@ -365,7 +380,7 @@ def product_check_rows(chat_id):
         rows.append(
             [
                 {
-                    "text": f"🔍 Check {product_button_name(index, product)}",
+                    "text": f"🔍 Check {product_button_name(chat_id, index, product)}",
                     "callback_data": f"check_product:{index}",
                 }
             ]
@@ -484,8 +499,7 @@ def apply_product_result(
     previous_status = product["last_status"]
     if title:
         product["source_name"] = title
-        if not product.get("custom_name"):
-            product["name"] = title
+        product["name"] = title
     product["last_price"] = price
     product["last_status"] = available
     product["last_checked"] = now_text()
