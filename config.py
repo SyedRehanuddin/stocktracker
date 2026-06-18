@@ -20,7 +20,6 @@ def validate_config():
         for name, value in {
             "TELEGRAM_BOT_TOKEN": TELEGRAM_BOT_TOKEN,
             "ADMIN_CHAT_ID": ADMIN_CHAT_ID,
-            "PRODUCT_URL": PRODUCT_URL,
         }.items()
         if not value
     ]

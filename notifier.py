@@ -21,12 +21,18 @@ def build_buttons(
 
     rows.extend(
         [
-            [{"text": "➕ Add Product", "callback_data": "add"}],
-            [{"text": "📦 My Products", "callback_data": "list"}],
-            [{"text": "🔍 Check Now", "callback_data": "check"}],
-            [{"text": "📊 Product Status", "callback_data": "status"}],
-            [{"text": "⚙️ Settings", "callback_data": "settings_menu"}],
-            [{"text": "❓ Help", "callback_data": "help"}],
+            [
+                {"text": "➕ Add Product", "callback_data": "add"},
+                {"text": "📦 My Products", "callback_data": "list"},
+            ],
+            [
+                {"text": "🔍 Check Now", "callback_data": "check"},
+                {"text": "📊 Product Status", "callback_data": "status"},
+            ],
+            [
+                {"text": "⚙️ Settings", "callback_data": "settings_menu"},
+                {"text": "❓ Help", "callback_data": "help"},
+            ],
         ]
     )
 

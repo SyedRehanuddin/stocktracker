@@ -47,7 +47,6 @@ TELEGRAM_BOT_TOKEN=your_token
 TELEGRAM_CHAT_ID=your_chat_id
 ADMIN_CHAT_ID=your_admin_chat_id
 PRODUCT_URL=https://www.amazon.in/dp/B0G2GMN6Y6
-ADDITIONAL_PRODUCT_URLS=https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186,https://www.amazon.in/dp/B0B7CMZ3QH
 REDIS_URL=your_render_key_value_redis_url
 MAX_USERS=15
 MAX_PRODUCTS_PER_USER=5
@@ -56,9 +55,9 @@ MIN_CHECK_INTERVAL_MINUTES=15
 PROXY_URL=optional_proxy_url   # leave unset unless Amazon starts blocking
 ```
 
-`PRODUCT_URL` and `ADDITIONAL_PRODUCT_URLS` seed the tracker ONLY on first run,
-when storage is empty. After that, Redis is the source of truth, so products you
-delete from the Telegram delete menu stay deleted across restarts and redeploys.
+`PRODUCT_URL` is optional for the live Telegram bot. Products are managed from
+Telegram and stored in Redis. It is still useful for the legacy `tracker.py
+--once` smoke test.
 
 ## Telegram Controls
 
