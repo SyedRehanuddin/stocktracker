@@ -6,6 +6,11 @@ from config import ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
+def aligned_field_text(items):
+    width = max((len(label) for _emoji, label, _value in items), default=0)
+    return "\n".join(f"{emoji} `{label.ljust(width)} : {value}`" for emoji, label, value in items)
+
+
 def build_buttons(
     paused=False,
     notify_only_on_change=False,
@@ -119,6 +124,12 @@ def send_status_alert(
 ):
     price_text = price or "Not found"
     checked_text = checked_time or "now"
+    field_text = aligned_field_text(
+        [
+            ("💰", "Price", price_text),
+            ("🕒", "Checked", checked_text),
+        ]
+    )
     notify_only_on_change = bool(controls.get("notify_only_on_change", False))
     changed_to_available = previous_status in (False, None) and available is True
     if available is True:
@@ -137,8 +148,7 @@ def send_status_alert(
         msg = (
             f"{title}\n\n"
             f"{product_name}\n\n"
-            f"💰 *Price:* {price_text}\n"
-            f"🕒 *Checked:* {checked_text}\n\n"
+            f"{field_text}\n\n"
             f"{body}"
         )
         reply_markup = {
@@ -154,8 +164,7 @@ def send_status_alert(
         msg = (
             f"{title}\n\n"
             f"{product_name}\n\n"
-            f"💰 *Price:* {price_text}\n"
-            f"🕒 *Checked:* {checked_text}\n\n"
+            f"{field_text}\n\n"
             "This product is currently unavailable to order on Amazon.\n\n"
             "I’ll keep checking and notify you when it comes back in stock."
         )
@@ -171,8 +180,7 @@ def send_status_alert(
         msg = (
             "⚠️ *Stock Status Unclear*\n\n"
             f"{product_name}\n\n"
-            f"💰 *Price:* {price_text}\n"
-            f"🕒 *Checked:* {checked_text}\n\n"
+            f"{field_text}\n\n"
             "Amazon did not show a clear stock result this time.\n\n"
             "This can happen if Amazon changes the page, blocks the request, or the product page is unclear. "
             "Try checking again later."
