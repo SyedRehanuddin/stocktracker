@@ -66,13 +66,12 @@ Commands also work:
 
 ```text
 /start
+/add
+/check
 /status
 /list
-/add
-/rename 2 Gaming Keyboard
-/check
-/delete
-/cancel
+/rename
+/remove
 /pause
 /resume
 /help

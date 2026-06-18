@@ -100,13 +100,12 @@ Product management lives inside `📦 My Products`. Tracking behavior lives insi
 
 ```text
 /start
+/add
+/check
 /status
 /list
-/add
-/rename 2 Gaming Keyboard
-/check
-/delete
-/cancel
+/rename
+/remove
 /pause
 /resume
 /help
@@ -125,10 +124,9 @@ Admin-only commands:
 - `/status`: shows tracked products and their latest status.
 - `/list`: shows tracked products with Amazon links.
 - `/add`: asks for an Amazon product URL.
-- `/rename 2 Name`: renames the action buttons for product 2.
+- `/rename`: opens the product rename picker.
 - `/check`: opens the product check picker.
-- `/delete`: opens the product remove picker.
-- `/cancel`: clears stuck check state and returns to main menu.
+- `/remove`: opens the product remove picker.
 - `/pause`: pauses scheduled checks for that user.
 - `/resume`: resumes scheduled checks for that user.
 - `/help`: shows command help.

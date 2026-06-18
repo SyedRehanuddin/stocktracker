@@ -738,11 +738,6 @@ def finish_check():
         check_lock.release()
 
 
-def clear_check_state_only():
-    state["check_running"] = False
-    state["check_started_at"] = None
-
-
 def start_message(chat_id):
     return (
         "*Stock Tracker*\n\n"
@@ -773,7 +768,7 @@ def product_check_rows(chat_id):
                 }
             ]
         )
-    rows.append([{"text": "⬅️ Back", "callback_data": "cancel_check"}])
+    rows.append([{"text": "⬅️ Back", "callback_data": "back_start"}])
     return rows
 
 
@@ -1389,7 +1384,7 @@ def handle_command(message):
         send_rename_picker(chat_id)
     elif command == "/check":
         send_check_picker(chat_id)
-    elif command in ("/remove", "/delete"):
+    elif command == "/remove":
         send_remove_picker(chat_id)
     elif command == "/pause":
         settings["paused"] = True
@@ -1488,10 +1483,6 @@ def handle_callback(query):
     elif data == "status":
         answer_callback_query(callback_id, "Sending status")
         send_telegram_message(compact_product_status_message(chat_id), chat_id=chat_id, reply_markup=status_markup())
-    elif data == "cancel_check":
-        clear_check_state_only()
-        answer_callback_query(callback_id, "Back")
-        send_main_menu(chat_id)
     elif data == "add":
         answer_callback_query(callback_id, "Send a product link")
         prompt_for_url(chat_id)
