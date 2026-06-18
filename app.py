@@ -940,11 +940,11 @@ def help_message(chat_id):
         "This bot tracks Amazon India product stock and price updates.\n\n"
         "*How to use:*\n"
         "\n"
-        "1. Tap ➕ Add Product and send an Amazon product link.\n"
-        "2. Tap 📦 My Products to view product links, rename products, or remove products.\n"
-        "3. Tap 🔍 Check Now to manually check stock and price.\n"
-        "4. Tap 📊 Product Status to see stock status, current price, and last checked time.\n"
-        "5. Tap ⚙️ Settings to change Auto Check timing, Notifications, and pause/resume automatic checks.\n\n"
+        "1️⃣ Tap ➕ Add Product and send an Amazon product link.\n"
+        "2️⃣ Tap 📦 My Products to view product links, rename products, or remove products.\n"
+        "3️⃣ Tap 🔍 Check Now to manually check stock and price.\n"
+        "4️⃣ Tap 📊 Product Status to see stock status, current price, and last checked time.\n"
+        "5️⃣ Tap ⚙️ Settings to change Auto Check timing, Notifications, and pause/resume automatic checks.\n\n"
         "*Commands:*\n"
         "/start - open main menu\n"
         "/check - choose a product to check\n"
@@ -998,6 +998,7 @@ def apply_product_result(
         price = None
 
     previous_status = product["last_status"]
+    is_first_check = not product.get("last_checked")
     if title:
         product["source_name"] = title
         product["name"] = title
@@ -1007,7 +1008,7 @@ def apply_product_result(
     if available is True or available is False:
         product["last_success_epoch"] = now_epoch()
 
-    send_now = send_alert and (
+    send_now = send_alert and not is_first_check and (
         force_notify or should_send_status(settings, product, available, previous_status)
     )
     if send_now:
@@ -1343,8 +1344,9 @@ def handle_product_url(chat_id, text):
     state["awaiting_product_url"].discard(str(chat_id))
     if ok:
         send_telegram_message(
-            "✅ Product added successfully.\n\n"
-            "Tip: You can rename the product button from 📦 My Products → ✏️ Rename Product.",
+            "*✅ Product added successfully.*\n\n"
+            "*Tip:*\n"
+            "You can rename the product button from 📦 My Products → ✏️ Rename Product.",
             chat_id=chat_id,
             reply_markup=add_success_markup(),
         )
