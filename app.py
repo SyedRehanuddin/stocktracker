@@ -27,11 +27,7 @@ from notifier import (
 )
 from storage import (
     add_approved_user,
-    add_pending_user,
-    add_rejected_user,
     is_approved_user,
-    is_pending_user,
-    is_rejected_user,
     list_approved_users,
     list_pending_users,
     list_rejected_users,
@@ -1185,7 +1181,7 @@ def chat_id_from_message(message):
     return str(message.get("chat", {}).get("id", ""))
 
 
-def profile_from_message(message, status="pending"):
+def profile_from_message(message, status="approved"):
     user = message.get("from", {}) or {}
     chat_id = chat_id_from_message(message)
     return {
@@ -1229,81 +1225,57 @@ def approved_friend_count():
     return len([chat_id for chat_id in list_approved_users() if not is_admin(chat_id)])
 
 
-def approval_buttons(chat_id):
-    return {
-        "inline_keyboard": [
-            [
-                {"text": "Approve", "callback_data": f"approve:{chat_id}"},
-                {"text": "Reject", "callback_data": f"reject:{chat_id}"},
-            ]
-        ]
-    }
-
-
 def request_access(message):
     chat_id = chat_id_from_message(message)
     if is_approved_user(chat_id):
         send_main_menu(chat_id)
         return
-    if is_rejected_user(chat_id):
-        send_telegram_message("*Access Denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-        return
-    if is_pending_user(chat_id):
-        send_telegram_message("*Access Request Already Sent To Admin.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-        return
     if approved_friend_count() >= MAX_USERS:
-        send_telegram_message("*Access Is Full Right Now.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
+        send_telegram_message(
+            "*Access Is Full Right Now.*\n\nPlease try again later.",
+            chat_id=chat_id,
+            reply_markup={"inline_keyboard": []},
+        )
+        profile = profile_from_message(message, status="blocked_full")
+        save_user_profile(chat_id, profile)
+        username = f"@{profile['username']}" if profile.get("username") else "none"
+        send_telegram_message(
+            "*New User Blocked: Limit Full*\n\n"
+            f"*Name:* `{display_name(profile)}`\n"
+            f"*Username:* `{username}`\n"
+            f"*Chat ID:* `{chat_id}`\n"
+            f"*Limit:* `{approved_friend_count()}/{MAX_USERS}`",
+            chat_id=ADMIN_CHAT_ID,
+            reply_markup={"inline_keyboard": []},
+        )
         return
 
-    profile = profile_from_message(message)
-    save_user_profile(chat_id, profile)
-    add_pending_user(chat_id)
-    send_telegram_message("*Access Request Sent To Admin.*\n\nPlease wait.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-
-    username = f"@{profile['username']}" if profile.get("username") else "none"
-    admin_message = (
-        "*New Access Request*\n\n"
-        f"*Name:* `{display_name(profile)}`\n"
-        f"*Username:* `{username}`\n"
-        f"*Chat ID:* `{chat_id}`"
-    )
-    send_telegram_message(
-        admin_message,
-        chat_id=ADMIN_CHAT_ID,
-        reply_markup=approval_buttons(chat_id),
-    )
-
-
-def approve_user(chat_id):
-    if approved_friend_count() >= MAX_USERS and not is_approved_user(chat_id):
-        send_telegram_message("*User Limit Reached.*\n\nRemove a user first.", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
-        return
-    profile = load_user_profile(chat_id) or {"chat_id": str(chat_id)}
+    profile = profile_from_message(message, status="approved")
     profile.update(
         {
-            "status": "approved",
             "approved_at": now_text(),
-            "approved_by": str(ADMIN_CHAT_ID),
+            "approved_by": "auto",
         }
     )
     save_user_profile(chat_id, profile)
     add_approved_user(chat_id)
     if not load_user_settings(chat_id):
         save_user_settings(chat_id, default_settings())
-    if not load_user_products(chat_id):
+    if load_user_products(chat_id) is None:
         save_user_products(chat_id, [])
-    send_telegram_message("*Access Approved.*\n\nUse /start to open tracker.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-    send_telegram_message(f"*Approved User:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
 
-
-def reject_user(chat_id):
-    profile = load_user_profile(chat_id) or {"chat_id": str(chat_id)}
-    profile["status"] = "rejected"
-    profile["rejected_at"] = now_text()
-    save_user_profile(chat_id, profile)
-    add_rejected_user(chat_id)
-    send_telegram_message("*Access Denied.*", chat_id=chat_id, reply_markup={"inline_keyboard": []})
-    send_telegram_message(f"*Rejected User:* `{chat_id}`", chat_id=ADMIN_CHAT_ID, reply_markup={"inline_keyboard": []})
+    username = f"@{profile['username']}" if profile.get("username") else "none"
+    send_telegram_message(
+        "👤 *New user started the bot*\n\n"
+        f"*Name:* `{display_name(profile)}`\n"
+        f"*Username:* `{username}`\n"
+        f"*Chat ID:* `{chat_id}`\n"
+        "*Status:* `approved automatically`\n"
+        f"*Users:* `{approved_friend_count()}/{MAX_USERS}`",
+        chat_id=ADMIN_CHAT_ID,
+        reply_markup={"inline_keyboard": []},
+    )
+    send_main_menu(chat_id)
 
 
 def users_message():
@@ -1451,17 +1423,6 @@ def handle_callback(query):
     callback_id = query.get("id")
     message = query.get("message", {})
     chat_id = chat_id_from_message(message)
-
-    if data.startswith("approve:") and is_admin(chat_id):
-        target = data.split(":", 1)[1]
-        approve_user(target)
-        answer_callback_query(callback_id, "Approved")
-        return
-    if data.startswith("reject:") and is_admin(chat_id):
-        target = data.split(":", 1)[1]
-        reject_user(target)
-        answer_callback_query(callback_id, "Rejected")
-        return
 
     if not ensure_authorized(chat_id):
         answer_callback_query(callback_id, "Access not approved")

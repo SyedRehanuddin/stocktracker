@@ -15,7 +15,8 @@ The project is built as a portfolio-style personal tool, not a public SaaS produ
 - Supports multiple approved users.
 - Each user has their own product list.
 - Each user has their own settings.
-- Admin approves or rejects users.
+- New users are approved automatically when they send `/start`.
+- Admin gets notified whenever a new user starts the bot.
 - Products can be added from Telegram without changing Render environment variables.
 - Product action buttons can be renamed with `/rename`.
 - Products can be deleted from an inline button menu.
@@ -47,8 +48,6 @@ Redis is used so data survives redeploys and Render restarts.
 It stores:
 
 - approved users
-- pending users
-- rejected users
 - each user's products
 - each user's settings
 - each user's profile
@@ -58,8 +57,6 @@ It stores:
 
 ```text
 stock_tracker:users
-stock_tracker:pending
-stock_tracker:rejected
 stock_tracker:user:{chat_id}:products
 stock_tracker:user:{chat_id}:settings
 stock_tracker:user:{chat_id}:profile
@@ -67,19 +64,19 @@ stock_tracker:user:{chat_id}:profile
 
 ## Multi-User System
 
-Anyone can send `/start`, but they do not get access automatically.
+Anyone can send `/start` and gets access automatically if the friend limit is not full.
 
 Flow:
 
 1. New user sends `/start`.
-2. Admin receives an approval request with name, username, and chat ID.
-3. Admin taps Approve or Reject.
-4. Approved users get their own empty tracker.
-5. Rejected users stay rejected and do not spam new approval requests.
+2. Bot approves the user immediately.
+3. User gets their own empty tracker and default settings.
+4. Admin receives a notification with name, username, and chat ID.
+5. If the limit is full, the user is blocked and admin is notified.
 
 Limits:
 
-- Max 10 approved friends plus admin.
+- Max 15 approved friends plus admin.
 - Max 5 products per normal user.
 - Admin is exempt from the product cap.
 - Minimum check interval is 15 minutes.
@@ -130,7 +127,7 @@ Admin-only commands:
 - `/pause`: pauses scheduled checks for that user.
 - `/resume`: resumes scheduled checks for that user.
 - `/help`: shows command help.
-- `/users`: admin list of approved, pending, and rejected users.
+- `/users`: admin list of users.
 - `/removeuser`: admin removes user access but keeps their data as backup.
 
 ## Rename Behavior

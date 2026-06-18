@@ -5,6 +5,11 @@ and sends a Telegram alert when an out-of-stock product becomes available.
 Products are added, removed, and managed entirely from Telegram. State persists
 in Redis.
 
+The bot supports multiple users. New users are approved automatically when they
+send `/start`, and the admin receives a Telegram notification with their name,
+username, and chat ID. Normal users can track up to 5 products each. The default
+friend limit is 15 users plus the admin.
+
 ## How It Runs
 
 `app.py` is the actual service. It runs three things in one process:
@@ -40,10 +45,14 @@ every restart.
 ```text
 TELEGRAM_BOT_TOKEN=your_token
 TELEGRAM_CHAT_ID=your_chat_id
+ADMIN_CHAT_ID=your_admin_chat_id
 PRODUCT_URL=https://www.amazon.in/dp/B0G2GMN6Y6
 ADDITIONAL_PRODUCT_URLS=https://www.amazon.in/dp/B0CY5HVDS2,https://www.amazon.in/dp/B0CY5QW186,https://www.amazon.in/dp/B0B7CMZ3QH
-CHECK_INTERVAL_MINUTES=15
 REDIS_URL=your_render_key_value_redis_url
+MAX_USERS=15
+MAX_PRODUCTS_PER_USER=5
+MAX_UNIQUE_CHECKS_PER_CYCLE=50
+MIN_CHECK_INTERVAL_MINUTES=15
 PROXY_URL=optional_proxy_url   # leave unset unless Amazon starts blocking
 ```
 
@@ -75,6 +84,13 @@ Commands also work:
 /pause
 /resume
 /help
+```
+
+Admin-only commands:
+
+```text
+/users
+/removeuser 123456789
 ```
 
 ## Health Endpoint
