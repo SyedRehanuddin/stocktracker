@@ -697,7 +697,30 @@ def compact_product_status_block(index, product):
 def single_product_status_message(chat_id, product):
     products = get_user_products(chat_id)
     index = product_number(products, product) or "?"
-    return "*Product Status*\n" + compact_product_status_block(index, product)
+    price = product.get("last_price") or "Not found"
+    status_emoji, status_text = status_parts(product)
+    return "\n".join(
+        [
+            "✅ *Check Complete*",
+            "",
+            f"{product_number_icon(index)} {product_display_name(product)}",
+            "",
+            f"{status_emoji} *Status:* {status_text}",
+            f"💰 *Price:* {price}",
+            f"🕒 *Last checked:* {compact_checked_time(product)}",
+            "",
+            f"🔗 [Buy on Amazon]({product['url']})",
+        ]
+    )
+
+
+def single_check_markup():
+    return inline_keyboard(
+        [
+            [{"text": "🔍 Check Another", "callback_data": "check"}],
+            [{"text": "⬅️ Back", "callback_data": "back_start"}],
+        ]
+    )
 
 
 def status_markup():
@@ -1063,7 +1086,7 @@ def run_single_product_check_async(chat_id, product_index):
                 send_telegram_message(
                     single_check_summary_message(chat_id, checked_product),
                     chat_id=chat_id,
-                    reply_markup=back_markup("back_start"),
+                    reply_markup=single_check_markup(),
                 )
         except Exception as e:
             print(f"Manual check failed: {e}", flush=True)
