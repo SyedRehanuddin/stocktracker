@@ -945,12 +945,6 @@ def help_message(chat_id):
         "3. Tap 🔍 Check Now to manually check stock and price.\n"
         "4. Tap 📊 Product Status to see stock status, current price, and last checked time.\n"
         "5. Tap ⚙️ Settings to change Auto Check timing, Notifications, and pause/resume automatic checks.\n\n"
-        "*Main sections:*\n"
-        "➕ Add Product — add a new Amazon product\n"
-        "📦 My Products — view product links, rename products, or remove products\n"
-        "🔍 Check Now — manually check stock and price for a product\n"
-        "📊 Product Status — view stock status, current price, and last checked time\n"
-        "⚙️ Settings — change Auto Check timing, Notifications, and pause/resume automatic checks\n\n"
         "*Commands:*\n"
         "/start - open main menu\n"
         "/check - choose a product to check\n"
@@ -1019,13 +1013,14 @@ def apply_product_result(
     if send_now:
         index = product_number(products, product)
         notification_name = (
-            f"Product {index} - {product_display_name(product)}" if index else product_display_name(product)
+            f"{product_number_icon(index)} {product_display_name(product)}" if index else product_display_name(product)
         )
         send_status_alert(
             available,
             product_name=notification_name,
             product_url=product["url"],
             price=product.get("last_price"),
+            checked_time=compact_checked_time(product),
             chat_id=chat_id,
             **controls(settings),
         )

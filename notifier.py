@@ -111,17 +111,31 @@ def send_status_alert(
     product_name="Product",
     product_url=None,
     price=None,
+    checked_time=None,
     chat_id=None,
     **controls,
 ):
     price_line = f"\n*Price:* `{price}`\n" if price else ""
     if available is True:
+        price_text = price or "Not found"
+        checked_text = checked_time or "now"
         msg = (
-            f"*{product_name} Is Available!*\n\n"
-            f"{price_line}"
-            "Amazon is showing Buy/Add to Cart options.\n\n"
-            "Go fast before it's gone."
+            "✅ *Back in Stock!*\n\n"
+            f"{product_name}\n\n"
+            f"💰 *Price:* {price_text}\n"
+            f"🕒 *Checked:* {checked_text}\n\n"
+            "Available to order on Amazon right now.\n\n"
+            "Tap below to open the product before it goes out of stock."
         )
+        reply_markup = {
+            "inline_keyboard": [
+                [{"text": "Buy on Amazon", "url": product_url}],
+                [{"text": "📊 Product Status", "callback_data": "status"}],
+                [{"text": "⚙️ Notifications", "callback_data": "alert_menu"}],
+            ]
+        }
+        send_telegram_message(msg, chat_id=chat_id, reply_markup=reply_markup)
+        return
     elif available is False:
         msg = (
             f"*{product_name}: Unavailable*\n\n"
