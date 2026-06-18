@@ -282,10 +282,11 @@ REDIS_URL
 PORT
 ```
 
-Optional legacy smoke-test variable may exist, but products are now managed from Telegram:
+Optional old seed variables may exist, but products are now managed from Telegram:
 
 ```text
 PRODUCT_URL
+ADDITIONAL_PRODUCT_URLS
 ```
 
 ## Current File Roles
