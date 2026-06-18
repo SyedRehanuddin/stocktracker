@@ -1021,6 +1021,7 @@ def apply_product_result(
             product_url=product["url"],
             price=product.get("last_price"),
             checked_time=compact_checked_time(product),
+            check_callback=f"check_product:{index}" if index else "check",
             chat_id=chat_id,
             **controls(settings),
         )

@@ -112,13 +112,13 @@ def send_status_alert(
     product_url=None,
     price=None,
     checked_time=None,
+    check_callback="check",
     chat_id=None,
     **controls,
 ):
-    price_line = f"\n*Price:* `{price}`\n" if price else ""
+    price_text = price or "Not found"
+    checked_text = checked_time or "now"
     if available is True:
-        price_text = price or "Not found"
-        checked_text = checked_time or "now"
         msg = (
             "✅ *Back in Stock!*\n\n"
             f"{product_name}\n\n"
@@ -132,26 +132,46 @@ def send_status_alert(
                 [{"text": "Buy on Amazon", "url": product_url}],
                 [{"text": "📊 Product Status", "callback_data": "status"}],
                 [{"text": "⚙️ Notifications", "callback_data": "alert_menu"}],
+                [{"text": "⬅️ Back", "callback_data": "back_start"}],
             ]
         }
-        send_telegram_message(msg, chat_id=chat_id, reply_markup=reply_markup)
-        return
     elif available is False:
         msg = (
-            f"*{product_name}: Unavailable*\n\n"
-            f"{price_line}"
-            "Amazon is still showing this product as out of stock.\n\n"
-            "I will keep checking."
+            "❌ *Out of Stock*\n\n"
+            f"{product_name}\n\n"
+            f"💰 *Price:* {price_text}\n"
+            f"🕒 *Checked:* {checked_text}\n\n"
+            "This product is currently unavailable to order on Amazon.\n\n"
+            "I’ll keep checking and notify you when it comes back in stock."
         )
+        reply_markup = {
+            "inline_keyboard": [
+                [{"text": "🔄 Check Again", "callback_data": check_callback}],
+                [{"text": "📊 Product Status", "callback_data": "status"}],
+                [{"text": "⚙️ Notifications", "callback_data": "alert_menu"}],
+                [{"text": "⬅️ Back", "callback_data": "back_start"}],
+            ]
+        }
     else:
         msg = (
-            f"*{product_name}: Unclear*\n\n"
-            f"{price_line}"
-            "Amazon did not show a clear stock status this time.\n\n"
-            "I will retry on the next check."
+            "⚠️ *Stock Status Unclear*\n\n"
+            f"{product_name}\n\n"
+            f"💰 *Price:* {price_text}\n"
+            f"🕒 *Checked:* {checked_text}\n\n"
+            "Amazon did not show a clear stock result this time.\n\n"
+            "This can happen if Amazon changes the page, blocks the request, or the product page is unclear. "
+            "Try checking again later."
         )
+        reply_markup = {
+            "inline_keyboard": [
+                [{"text": "🔄 Check Again", "callback_data": check_callback}],
+                [{"text": "📊 Product Status", "callback_data": "status"}],
+                [{"text": "⚙️ Notifications", "callback_data": "alert_menu"}],
+                [{"text": "⬅️ Back", "callback_data": "back_start"}],
+            ]
+        }
 
-    send_telegram_message(msg, chat_id=chat_id, product_url=product_url, **controls)
+    send_telegram_message(msg, chat_id=chat_id, reply_markup=reply_markup)
 
 
 def send_control_message(message, **controls):
