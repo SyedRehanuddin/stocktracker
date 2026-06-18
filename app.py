@@ -337,6 +337,16 @@ def product_status_label(product):
     return status_label(product["last_status"])
 
 
+def aligned_pairs(items, separator=" - "):
+    width = max((len(label) for label, _value in items), default=0)
+    return "\n".join(f"`{label.ljust(width)}{separator}{value}`" for label, value in items)
+
+
+def aligned_field_lines(items):
+    width = max((len(label) for _emoji, label, _value in items), default=0)
+    return [f"{emoji} `{label.ljust(width)} : {value}`" for emoji, label, value in items]
+
+
 def product_number_icon(index):
     return NUMBER_EMOJIS.get(index, f"#{index}")
 
@@ -681,14 +691,19 @@ def compact_product_status_message(chat_id):
 def compact_product_status_block(index, product):
     price = product.get("last_price") or "Not found"
     status_emoji, status_text = status_parts(product)
+    field_lines = aligned_field_lines(
+        [
+            (status_emoji, "Status", status_text),
+            ("💰", "Price", price),
+            ("🕒", "Last checked", compact_checked_time(product)),
+        ]
+    )
     return "\n".join(
         [
             "",
             f"{product_number_icon(index)} {product_display_name(product)}",
             "",
-            f"{status_emoji} *Status:* {status_text}",
-            f"💰 *Price:* {price}",
-            f"🕒 *Last checked:* {compact_checked_time(product)}",
+            *field_lines,
             PRODUCT_SEPARATOR,
         ]
     )
@@ -699,15 +714,20 @@ def single_product_status_message(chat_id, product):
     index = product_number(products, product) or "?"
     price = product.get("last_price") or "Not found"
     status_emoji, status_text = status_parts(product)
+    field_lines = aligned_field_lines(
+        [
+            (status_emoji, "Status", status_text),
+            ("💰", "Price", price),
+            ("🕒", "Last checked", compact_checked_time(product)),
+        ]
+    )
     return "\n".join(
         [
             "✅ *Check Complete*",
             "",
             f"{product_number_icon(index)} {product_display_name(product)}",
             "",
-            f"{status_emoji} *Status:* {status_text}",
-            f"💰 *Price:* {price}",
-            f"🕒 *Last checked:* {compact_checked_time(product)}",
+            *field_lines,
             "",
             f"🔗 [Buy on Amazon]({product['url']})",
         ]
@@ -898,11 +918,17 @@ def send_alert_menu(chat_id):
 def settings_message(settings):
     auto_check = "Paused" if settings["paused"] else "Active"
     alert_mode = "Only when stock changes" if settings["notify_only_on_change"] else "Every check"
+    settings_lines = aligned_pairs(
+        [
+            ("Auto check", auto_check),
+            ("Check every", f"{settings['interval']} minutes"),
+            ("Notify", alert_mode),
+        ],
+        separator=" : ",
+    )
     return (
         "*Settings*\n\n"
-        f"*Auto check:* {auto_check}\n"
-        f"*Check every:* {settings['interval']} minutes\n"
-        f"*Notify:* {alert_mode}"
+        f"{settings_lines}"
     )
 
 
@@ -929,24 +955,24 @@ def send_settings_menu(chat_id):
 
 def help_message(chat_id):
     user_commands = [
-        "/start - open main menu",
-        "/check - choose a product to check",
-        "/add - add product",
-        "/status - show stock status and price information",
-        "/list - show product links",
-        "/rename - choose a product to rename",
-        "/remove - choose product to remove",
-        "/pause - pause automatic checks",
-        "/resume - resume automatic checks",
-        "/help - show this help",
+        ("/start", "open main menu"),
+        ("/check", "choose a product to check"),
+        ("/add", "add product"),
+        ("/status", "show stock status and price information"),
+        ("/list", "show product links"),
+        ("/rename", "choose a product to rename"),
+        ("/remove", "choose product to remove"),
+        ("/pause", "pause automatic checks"),
+        ("/resume", "resume automatic checks"),
+        ("/help", "show this help"),
     ]
     admin_commands = [
-        "/users - list users",
-        "/removeuser 123 - remove user access",
+        ("/users", "list users"),
+        ("/removeuser 123", "remove user access"),
     ]
     admin_lines = (
         "\n\n*Admin commands:*\n"
-        f"{chr(10).join(admin_commands)}"
+        f"{aligned_pairs(admin_commands)}"
         if is_admin(chat_id)
         else ""
     )
@@ -955,18 +981,18 @@ def help_message(chat_id):
         "This bot tracks Amazon India product stock and price updates.\n\n"
         "*How to use:*\n"
         "\n"
-        "1️⃣ Tap ➕ `Add Product`\n"
+        "1️⃣ Tap `➕ Add Product`\n"
         "   Send an Amazon product link.\n\n"
-        "2️⃣ Tap 📦 `My Products`\n"
+        "2️⃣ Tap `📦 My Products`\n"
         "   View product links, rename products, or remove products.\n\n"
-        "3️⃣ Tap 🔍 `Check Now`\n"
+        "3️⃣ Tap `🔍 Check Now`\n"
         "   Manually check stock and price.\n\n"
-        "4️⃣ Tap 📊 `Product Status`\n"
+        "4️⃣ Tap `📊 Product Status`\n"
         "   See stock status, current price, and last checked time.\n\n"
-        "5️⃣ Tap ⚙️ `Settings`\n"
+        "5️⃣ Tap `⚙️ Settings`\n"
         "   Change Auto Check timing, Notifications, and pause/resume automatic checks.\n\n"
         "*Commands:*\n"
-        f"{chr(10).join(user_commands)}"
+        f"{aligned_pairs(user_commands)}"
         f"{admin_lines}"
     )
 
