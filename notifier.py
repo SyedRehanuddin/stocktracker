@@ -6,11 +6,6 @@ from config import ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN
 API_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 
-def aligned_field_text(items):
-    width = max((len(label) for _emoji, label, _value in items), default=0)
-    return "\n".join(f"{emoji} `{label.ljust(width)} : {value}`" for emoji, label, value in items)
-
-
 def build_buttons(
     paused=False,
     notify_only_on_change=False,
@@ -124,12 +119,7 @@ def send_status_alert(
 ):
     price_text = price or "Not found"
     checked_text = checked_time or "now"
-    field_text = aligned_field_text(
-        [
-            ("💰", "Price", price_text),
-            ("🕒", "Checked", checked_text),
-        ]
-    )
+    field_text = f"💰 *Price:* {price_text}\n🕒 *Checked:* {checked_text}"
     notify_only_on_change = bool(controls.get("notify_only_on_change", False))
     changed_to_available = previous_status in (False, None) and available is True
     if available is True:
