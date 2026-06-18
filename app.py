@@ -674,20 +674,30 @@ def compact_product_status_message(chat_id):
 
     lines = ["*Product Status*"]
     for index, product in enumerate(products, start=1):
-        price = product.get("last_price") or "Not found"
-        status_emoji, status_text = status_parts(product)
-        lines.extend(
-            [
-                "",
-                f"{product_number_icon(index)} {product_display_name(product)}",
-                "",
-                f"{status_emoji} *Status:* {status_text}",
-                f"💰 *Price:* {price}",
-                f"🕒 *Last checked:* {compact_checked_time(product)}",
-                PRODUCT_SEPARATOR,
-            ]
-        )
+        lines.append(compact_product_status_block(index, product))
     return "\n".join(lines)
+
+
+def compact_product_status_block(index, product):
+    price = product.get("last_price") or "Not found"
+    status_emoji, status_text = status_parts(product)
+    return "\n".join(
+        [
+            "",
+            f"{product_number_icon(index)} {product_display_name(product)}",
+            "",
+            f"{status_emoji} *Status:* {status_text}",
+            f"💰 *Price:* {price}",
+            f"🕒 *Last checked:* {compact_checked_time(product)}",
+            PRODUCT_SEPARATOR,
+        ]
+    )
+
+
+def single_product_status_message(chat_id, product):
+    products = get_user_products(chat_id)
+    index = product_number(products, product) or "?"
+    return "*Product Status*\n" + compact_product_status_block(index, product)
 
 
 def status_markup():
@@ -909,24 +919,30 @@ def help_message(chat_id):
     )
     return (
         "*Help*\n\n"
-        "This bot tracks Amazon India product stock.\n\n"
+        "This bot tracks Amazon India product stock and price updates.\n\n"
         "*How to use:*\n"
+        "\n"
         "1. Tap ➕ Add Product and send an Amazon product link.\n"
-        "2. Tap 🔍 Check Now to manually check a product.\n"
-        "3. Tap 📊 Product Status to see stock, price, and last checked time.\n"
-        "4. Tap 📦 My Products to view, rename, or remove products.\n"
-        "5. Tap ⚙️ Settings to change check timing and alerts.\n\n"
+        "2. Tap 📦 My Products to view product links, rename products, or remove products.\n"
+        "3. Tap 🔍 Check Now to manually check stock and price.\n"
+        "4. Tap 📊 Product Status to see stock status, current price, and last checked time.\n"
+        "5. Tap ⚙️ Settings to change Auto Check timing, Notifications, and pause/resume automatic checks.\n\n"
+        "*Main sections:*\n"
+        "➕ Add Product — add a new Amazon product\n"
+        "📦 My Products — view product links, rename products, or remove products\n"
+        "🔍 Check Now — manually check stock and price for a product\n"
+        "📊 Product Status — view stock status, current price, and last checked time\n"
+        "⚙️ Settings — change Auto Check timing, Notifications, and pause/resume automatic checks\n\n"
         "*Commands:*\n"
         "/start - open main menu\n"
-        "/status - show product status\n"
-        "/list - show product links\n"
-        "/add - add an Amazon product\n"
-        "/rename 2 Keyboard - rename product buttons\n"
         "/check - choose a product to check\n"
-        "/delete - choose a product to remove\n"
-        "/cancel - clear stuck check state\n"
-        "/pause - pause tracking\n"
-        "/resume - resume tracking\n"
+        "/add - add product\n"
+        "/status - show stock status and price information\n"
+        "/list - show product links\n"
+        "/rename - choose a product to rename\n"
+        "/remove - choose product to remove\n"
+        "/pause - pause automatic checks\n"
+        "/resume - resume automatic checks\n"
         "/help - show this help"
         f"{admin_lines}"
     )
@@ -1025,29 +1041,20 @@ def run_single_product_check(chat_id, product_index, force_notify=False, send_al
 
 
 def single_check_summary_message(chat_id, product):
-    products = get_user_products(chat_id)
-    index = product_number(products, product) or "?"
-    return (
-        "*Check Finished*\n\n"
-        f"{product_status_block(index, product)}\n"
-        f"[Buy on Amazon]({product['url']})"
-    )
+    return single_product_status_message(chat_id, product)
 
 
 def run_single_product_check_async(chat_id, product_index):
     settings = get_user_settings(chat_id)
     if not begin_check():
-        send_control_message("*Check Already Running.*", chat_id=chat_id, **controls(settings))
+        send_back_message("*Check Already Running.*", chat_id=chat_id)
         return
 
     products = get_user_products(chat_id)
     if product_index < 0 or product_index >= len(products):
         finish_check()
-        send_control_message("*Invalid Product Number.*\n\nThat product number is not in the list.", chat_id=chat_id, **controls(settings))
+        send_back_message("*Invalid Product Number.*\n\nThat product number is not in the list.", chat_id=chat_id)
         return
-
-    product = products[product_index]
-    send_control_message(f"*Check Started:* {product_display_name(product)}", chat_id=chat_id, **controls(settings))
 
     def worker():
         try:
@@ -1058,14 +1065,14 @@ def run_single_product_check_async(chat_id, product_index):
                 send_alert=False,
             )
             if checked_product:
-                send_control_message(
+                send_telegram_message(
                     single_check_summary_message(chat_id, checked_product),
                     chat_id=chat_id,
-                    **controls(get_user_settings(chat_id)),
+                    reply_markup=back_markup("back_start"),
                 )
         except Exception as e:
             print(f"Manual check failed: {e}", flush=True)
-            send_control_message(f"*Check Failed:* `{e}`", chat_id=chat_id, **controls(settings))
+            send_back_message(f"*Check Failed:* `{e}`", chat_id=chat_id)
         finally:
             finish_check()
 
@@ -1379,29 +1386,19 @@ def handle_command(message):
         else:
             prompt_for_url(chat_id)
     elif command == "/rename":
-        if len(parts) < 3:
-            send_back_message(
-                "*Usage:* `/rename 2 Gaming Keyboard`\n\nUse the product number and new name.",
-                chat_id=chat_id,
-            )
-        else:
-            ok, message = rename_product(chat_id, parts[1], " ".join(parts[2:]))
-            send_back_message(message if ok else f"*{message}*", chat_id=chat_id)
+        send_rename_picker(chat_id)
     elif command == "/check":
         send_check_picker(chat_id)
-    elif command == "/delete":
+    elif command in ("/remove", "/delete"):
         send_remove_picker(chat_id)
-    elif command == "/cancel":
-        clear_check_state_only()
-        send_main_menu(chat_id)
     elif command == "/pause":
         settings["paused"] = True
         save_user_settings(chat_id, settings)
-        send_back_message("*Tracker Paused.*", chat_id=chat_id, target="back_settings")
+        send_back_message("*Auto check paused.*", chat_id=chat_id, target="back_settings")
     elif command == "/resume":
         settings["paused"] = False
         save_user_settings(chat_id, settings)
-        send_back_message("*Tracker Resumed.*", chat_id=chat_id, target="back_settings")
+        send_back_message("*Auto check resumed.*", chat_id=chat_id, target="back_settings")
     elif command == "/users" and is_admin(chat_id):
         send_telegram_message(users_message(), chat_id=chat_id)
     elif command == "/removeuser" and is_admin(chat_id):

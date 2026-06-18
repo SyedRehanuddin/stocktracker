@@ -175,16 +175,15 @@ def get_updates(offset=None):
 def set_bot_commands():
     user_commands = [
         {"command": "start", "description": "Show tracker dashboard"},
-        {"command": "status", "description": "Show current stock status"},
-        {"command": "check", "description": "Choose a product to check now"},
-        {"command": "add", "description": "Add an Amazon product URL"},
-        {"command": "list", "description": "List tracked products"},
-        {"command": "rename", "description": "Rename a product by number"},
-        {"command": "delete", "description": "Choose a product to delete"},
-        {"command": "cancel", "description": "Cancel stuck check state"},
-        {"command": "pause", "description": "Pause scheduled checks"},
-        {"command": "resume", "description": "Resume scheduled checks"},
-        {"command": "help", "description": "Show commands and buttons"},
+        {"command": "add", "description": "Add product"},
+        {"command": "check", "description": "Choose product to check"},
+        {"command": "status", "description": "Show stock status and price"},
+        {"command": "list", "description": "Show product links"},
+        {"command": "rename", "description": "Choose product to rename"},
+        {"command": "remove", "description": "Choose product to remove"},
+        {"command": "pause", "description": "Pause automatic checks"},
+        {"command": "resume", "description": "Resume automatic checks"},
+        {"command": "help", "description": "Show help"},
     ]
     admin_commands = user_commands + [
         {"command": "users", "description": "Admin: list users"},
