@@ -762,9 +762,17 @@ def finish_check():
 
 
 def start_message(chat_id):
+    products = get_user_products(chat_id)
+    if not products:
+        return (
+            "*🛒 Amazon Stock Alert*\n\n"
+            "No products added yet.\n\n"
+            "Tap `➕ Add Product` and send an Amazon product link to start tracking."
+        )
+
     return (
-        "*Stock Tracker*\n\n"
-        f"*Products:* `{len(get_user_products(chat_id))}`\n"
+        "*🛒 Amazon Stock Alert*\n\n"
+        f"*Products:* `{len(products)}`\n"
         "Use the buttons below to manage your tracker."
     )
 
