@@ -1023,6 +1023,7 @@ def apply_product_result(
             price=product.get("last_price"),
             checked_time=compact_checked_time(product),
             check_callback=f"check_product:{index}" if index else "check",
+            previous_status=previous_status,
             chat_id=chat_id,
             **controls(settings),
         )

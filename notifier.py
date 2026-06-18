@@ -113,19 +113,33 @@ def send_status_alert(
     price=None,
     checked_time=None,
     check_callback="check",
+    previous_status=None,
     chat_id=None,
     **controls,
 ):
     price_text = price or "Not found"
     checked_text = checked_time or "now"
+    notify_only_on_change = bool(controls.get("notify_only_on_change", False))
+    changed_to_available = previous_status in (False, None) and available is True
     if available is True:
+        if changed_to_available:
+            title = "✅ *Back in Stock!*"
+            body = (
+                "Available to order on Amazon right now.\n\n"
+                "Tap below to open the product before it goes out of stock."
+            )
+        else:
+            title = "✅ *In Stock*"
+            body = (
+                "This product is currently available on Amazon.\n\n"
+                "Tap below to open the product."
+            )
         msg = (
-            "✅ *Back in Stock!*\n\n"
+            f"{title}\n\n"
             f"{product_name}\n\n"
             f"💰 *Price:* {price_text}\n"
             f"🕒 *Checked:* {checked_text}\n\n"
-            "Available to order on Amazon right now.\n\n"
-            "Tap below to open the product before it goes out of stock."
+            f"{body}"
         )
         reply_markup = {
             "inline_keyboard": [
@@ -136,8 +150,9 @@ def send_status_alert(
             ]
         }
     elif available is False:
+        title = "❌ *Out of Stock*" if notify_only_on_change else "❌ *Still Out of Stock*"
         msg = (
-            "❌ *Out of Stock*\n\n"
+            f"{title}\n\n"
             f"{product_name}\n\n"
             f"💰 *Price:* {price_text}\n"
             f"🕒 *Checked:* {checked_text}\n\n"
