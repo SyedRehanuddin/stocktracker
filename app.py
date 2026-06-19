@@ -1281,8 +1281,7 @@ def request_access(message):
 def users_message():
     approved = list_approved_users()
     lines = ["*Users*"]
-    lines.append(f"\n*Approved friends:* `{approved_friend_count()}/{MAX_USERS}`")
-    lines.append(f"*Total approved including admin:* `{len(approved)}`")
+    lines.append(f"\n*Approved users:* `{approved_friend_count()}/{MAX_USERS}`")
     for chat_id in approved:
         profile = load_user_profile(chat_id)
         label = "admin" if is_admin(chat_id) else "user"
