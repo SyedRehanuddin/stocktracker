@@ -1403,17 +1403,17 @@ def handle_command(message):
         save_user_settings(chat_id, settings)
         send_back_message("*Auto check resumed.*", chat_id=chat_id, target="back_settings")
     elif command == "/users" and is_admin(chat_id):
-        send_telegram_message(users_message(), chat_id=chat_id)
+        send_telegram_message(users_message(), chat_id=chat_id, reply_markup={"inline_keyboard": []})
     elif command == "/removeuser" and is_admin(chat_id):
         if len(parts) < 2:
-            send_telegram_message("*Usage:* `/removeuser 123456789`.", chat_id=chat_id)
+            send_telegram_message("*Usage:* `/removeuser 123456789`.", chat_id=chat_id, reply_markup={"inline_keyboard": []})
         else:
             remove_approved_user(parts[1])
             profile = load_user_profile(parts[1]) or {"chat_id": parts[1]}
             profile["status"] = "removed"
             profile["removed_at"] = now_text()
             save_user_profile(parts[1], profile)
-            send_telegram_message(f"*Removed User Access:* `{parts[1]}`", chat_id=chat_id)
+            send_telegram_message(f"*Removed User Access:* `{parts[1]}`", chat_id=chat_id, reply_markup={"inline_keyboard": []})
     elif command == "/help":
         send_help_menu(chat_id)
 
