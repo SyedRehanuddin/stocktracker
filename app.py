@@ -1280,22 +1280,13 @@ def request_access(message):
 
 def users_message():
     approved = list_approved_users()
-    pending = list_pending_users()
-    rejected = list_rejected_users()
     lines = ["*Users*"]
-    lines.append(f"\n*Approved:* `{len(approved)}`")
+    lines.append(f"\n*Approved friends:* `{approved_friend_count()}/{MAX_USERS}`")
+    lines.append(f"*Total approved including admin:* `{len(approved)}`")
     for chat_id in approved:
         profile = load_user_profile(chat_id)
         label = "admin" if is_admin(chat_id) else "user"
         lines.append(f"- `{chat_id}` ({label}) {display_name(profile)}")
-    lines.append(f"\n*Pending:* `{len(pending)}`")
-    for chat_id in pending:
-        profile = load_user_profile(chat_id)
-        lines.append(f"- `{chat_id}` {display_name(profile)}")
-    lines.append(f"\n*Rejected:* `{len(rejected)}`")
-    for chat_id in rejected:
-        profile = load_user_profile(chat_id)
-        lines.append(f"- `{chat_id}` {display_name(profile)}")
     return "\n".join(lines)
 
 
