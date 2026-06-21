@@ -1335,8 +1335,7 @@ def handle_product_url(chat_id, text):
     if ok:
         send_telegram_message(
             "*✅ Product added successfully.*\n\n"
-            "*Tip:*\n"
-            "You can rename the product button from 📦 My Products → ✏️ Rename Product.",
+            "💡 *Tip:* Want a shorter name? Go to 📦 My Products → ✏️ Rename Product to rename it.",
             chat_id=chat_id,
             reply_markup=add_success_markup(),
         )
