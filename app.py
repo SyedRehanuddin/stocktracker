@@ -388,10 +388,6 @@ def product_button_name(chat_id, index, product):
     if button_name:
         return short_label(button_name)
 
-    display_name = product_display_name(product)
-    if display_name and display_name != f"Product {index}":
-        return short_label(display_name)
-
     return f"Product {index}"
 
 
