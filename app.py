@@ -388,11 +388,24 @@ def product_button_name(chat_id, index, product):
     if button_name:
         return short_label(button_name)
 
+    display_name = product_display_name(product)
+    if display_name and display_name != f"Product {index}":
+        return short_label(display_name)
+
     return f"Product {index}"
 
 
-def product_short_name(chat_id, index, product):
-    return product_button_name(chat_id, index, product)
+def rename_remove_button_name(chat_id, index, product):
+    custom_name = clean_product_name(product.get("custom_name"))
+    if custom_name:
+        return short_label(custom_name)
+
+    settings = get_user_settings(chat_id)
+    button_name = clean_product_name(settings.get("button_names", {}).get(str(index)))
+    if button_name:
+        return short_label(button_name)
+
+    return f"Product {index}"
 
 
 def product_limit_text(chat_id):
@@ -453,7 +466,11 @@ def add_product(chat_id, url):
     if limit is not None and len(products) >= limit:
         return False, f"Maximum {limit} products allowed. Remove one before adding another."
 
-    products.append(make_product(cleaned_url, index=len(products) + 1))
+    product = make_product(cleaned_url, index=len(products) + 1)
+    results = check_urls([cleaned_url])
+    result = results[0] if results else {"available": None, "title": None, "price": None}
+    apply_product_result(chat_id, products + [product], product, result, send_alert=False)
+    products.append(product)
     save_user_products(chat_id, products)
     return True, f"Added Product {len(products)}."
 
@@ -580,7 +597,7 @@ def product_rename_rows(chat_id):
         rows.append(
             [
                 {
-                    "text": f"✏️ Rename {product_short_name(chat_id, index, product)}",
+                    "text": f"✏️ Rename {rename_remove_button_name(chat_id, index, product)}",
                     "callback_data": f"rename_product:{index}",
                 }
             ]
@@ -603,7 +620,7 @@ def product_remove_rows(chat_id):
         rows.append(
             [
                 {
-                    "text": f"🗑 Remove {product_short_name(chat_id, index, product)}",
+                    "text": f"🗑 Remove {rename_remove_button_name(chat_id, index, product)}",
                     "callback_data": f"delete_product:{index}",
                 }
             ]
